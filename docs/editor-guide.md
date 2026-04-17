@@ -69,11 +69,14 @@ Displays the file tree of the project's asset root directory.
 | Action | How |
 |---|---|
 | Filter entries | Type in the 🔍 search box at the top |
+| Expand a directory | Click **▾ 📁 dirname** (expanded by default) |
+| Collapse a directory | Click **▾ 📁 dirname** to toggle to **▸ 📁 dirname** |
 | Select a file | Click its row |
 | Refresh | Reload the project (File → Open) |
 
 The browser auto-populates when you open a project and reflects the asset root
-defined in `novaforge.workspace.toml`.
+defined in `novaforge.workspace.toml`.  Directories start expanded; click the
+arrow prefix to collapse any subtree.
 
 ---
 
@@ -86,6 +89,8 @@ A world/scene editor with an entity list and transform inspector.
 | **⬆ Translate / ↻ Rotate / ⤢ Scale** | Select the active gizmo mode |
 | **＋ Entity** | Add a new entity to the scene |
 | **🗑 Delete** | Remove the selected entity (enabled only when something is selected) |
+| **💾 Save** | Serialise all entities to `<asset_root>/scenes/scene.toml` |
+| **📂 Load** | Load entities from `<asset_root>/scenes/scene.toml` |
 | Click an entity row | Select it; transform fields appear in the inspector below the viewport |
 | **Name** field | Rename the selected entity |
 | **Position / Rotation / Scale** drag-values | Edit the transform; drag left/right to change, or click to type |
@@ -129,6 +134,7 @@ A node-graph canvas for authoring materials and shaders.
 | **🔍＋ / 🔍−** | Zoom the canvas in or out |
 | **⊙ Reset View** | Return to default zoom and pan |
 | Click a node | Select it (highlighted border; name shown in toolbar) |
+| Drag a node | Reposition it on the canvas |
 | Drag the canvas background | Pan the view |
 
 Each node displays coloured port stubs on its left (inputs) and right (output)
@@ -150,6 +156,7 @@ A blueprint-style node graph for scripting game logic without code.
 | **🔍＋ / 🔍−** | Zoom in / out |
 | **⊙ Reset** | Reset zoom and pan |
 | Click a node | Select it (thicker border; name shown in toolbar) |
+| Drag a node | Reposition it on the canvas |
 | Drag the canvas background | Pan the view |
 
 Edges between the default starter nodes are drawn as straight lines.  A full
@@ -166,7 +173,10 @@ A drag-and-drop canvas for designing in-game UI layouts.
 | **＋ Panel** | Add a Panel widget (dark blue, 120 × 60 px default) |
 | **＋ Label** | Add a Label widget (dark green, 100 × 20 px default) |
 | **＋ Button** | Add a Button widget (dark purple, 90 × 28 px default) |
+| **🗑 Delete** | Remove the selected widget (enabled when a widget is selected) |
+| Click a widget | Select it (bright border highlight) |
 | Drag a widget | Move it around the canvas |
+| Click the canvas background | Deselect the current widget |
 | Widget count badge | Shows total number of widgets in the toolbar |
 
 Each widget type is colour-coded on the canvas.  Full property binding and

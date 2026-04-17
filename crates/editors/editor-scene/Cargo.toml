@@ -13,6 +13,8 @@ standalone = ["eframe"]
 [dependencies]
 egui          = { workspace = true }
 novaforge-ui  = { workspace = true }
+serde         = { workspace = true }
+toml          = { workspace = true }
 eframe        = { workspace = true, optional = true }
 
 [[bin]]

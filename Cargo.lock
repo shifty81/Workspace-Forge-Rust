@@ -888,6 +888,8 @@ dependencies = [
  "eframe",
  "egui",
  "novaforge-ui",
+ "serde",
+ "toml",
 ]
 
 [[package]]

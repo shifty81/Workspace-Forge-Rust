@@ -403,23 +403,41 @@ struct WorkspaceBrowser {
     entries: Vec<BrowserEntry>,
     filter: String,
     selected: Option<usize>,
+    /// Relative paths of directories that are currently collapsed.
+    collapsed: std::collections::HashSet<String>,
 }
 
 #[derive(Clone)]
 struct BrowserEntry {
     display: String,
+    /// Relative path from the asset root (forward-slash separated).
+    path: String,
     is_dir: bool,
     depth: usize,
 }
 
 impl WorkspaceBrowser {
     fn set_root(&mut self, root: PathBuf) {
-        self.root = Some(root.clone());
-        self.entries = scan_dir(&root, 0);
+        self.entries = scan_dir(&root, &root, 0);
+        self.root = Some(root);
+        self.selected = None;
+    }
+
+    /// Returns `true` if any ancestor directory of `path` is in the collapsed
+    /// set.  `path` is a relative, forward-slash separated string.
+    fn is_ancestor_collapsed(&self, path: &str) -> bool {
+        let parts: Vec<&str> = path.split('/').collect();
+        for i in 0..parts.len().saturating_sub(1) {
+            let ancestor = parts[..=i].join("/");
+            if self.collapsed.contains(&ancestor) {
+                return true;
+            }
+        }
+        false
     }
 }
 
-fn scan_dir(path: &PathBuf, depth: usize) -> Vec<BrowserEntry> {
+fn scan_dir(path: &PathBuf, root: &PathBuf, depth: usize) -> Vec<BrowserEntry> {
     let mut entries = Vec::new();
     if depth > 4 {
         return entries;
@@ -433,13 +451,18 @@ fn scan_dir(path: &PathBuf, depth: usize) -> Vec<BrowserEntry> {
         let p = item.path();
         let name = item.file_name().to_string_lossy().to_string();
         let is_dir = p.is_dir();
+        let rel_path = p
+            .strip_prefix(root)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| name.clone());
         entries.push(BrowserEntry {
-            display: name.clone(),
+            display: name,
+            path: rel_path,
             is_dir,
             depth,
         });
         if is_dir {
-            entries.extend(scan_dir(&p, depth + 1));
+            entries.extend(scan_dir(&p, root, depth + 1));
         }
     }
     entries
@@ -476,25 +499,52 @@ impl EditorPanel for WorkspaceBrowser {
 
         let filter_lower = self.filter.to_lowercase();
 
+        // Collect toggle actions outside the borrow on self.entries to avoid
+        // a simultaneous mutable + immutable borrow conflict.
+        let mut toggle_path: Option<String> = None;
+        let mut new_selected = self.selected;
+
         egui::ScrollArea::vertical().show(ui, |ui| {
-            let mut new_selected = self.selected;
             for (i, entry) in self.entries.iter().enumerate() {
-                if !filter_lower.is_empty() && !entry.display.to_lowercase().contains(&filter_lower)
+                // Hide entries whose parent directory is collapsed.
+                if self.is_ancestor_collapsed(&entry.path) {
+                    continue;
+                }
+
+                // When filtering, show only entries whose name matches (and
+                // always show directories so the tree structure is preserved).
+                if !filter_lower.is_empty()
+                    && !entry.is_dir
+                    && !entry.display.to_lowercase().contains(&filter_lower)
                 {
                     continue;
                 }
-                let indent = entry.depth as f32 * 12.0;
-                ui.horizontal(|ui| {
-                    ui.add_space(indent);
-                    let icon = if entry.is_dir { "📁" } else { "📄" };
-                    let label = format!("{icon} {}", entry.display);
-                    let selected = self.selected == Some(i);
-                    if ui.selectable_label(selected, label).clicked() {
-                        new_selected = Some(i);
-                    }
-                });
+
+                let indent = entry.depth as f32 * 14.0;
+
+                if entry.is_dir {
+                    let is_collapsed = self.collapsed.contains(&entry.path);
+                    let arrow = if is_collapsed { "▸" } else { "▾" };
+                    ui.horizontal(|ui| {
+                        ui.add_space(indent);
+                        if ui
+                            .small_button(format!("{arrow} 📁 {}", entry.display))
+                            .clicked()
+                        {
+                            toggle_path = Some(entry.path.clone());
+                        }
+                    });
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.add_space(indent);
+                        let label = format!("📄 {}", entry.display);
+                        let selected = self.selected == Some(i);
+                        if ui.selectable_label(selected, label).clicked() {
+                            new_selected = Some(i);
+                        }
+                    });
+                }
             }
-            self.selected = new_selected;
 
             if self.entries.is_empty() && self.root.is_some() {
                 ui.label(
@@ -510,6 +560,17 @@ impl EditorPanel for WorkspaceBrowser {
                 );
             }
         });
+
+        // Apply the collapse / expand toggle after the borrow on entries ends.
+        if let Some(path) = toggle_path {
+            if self.collapsed.contains(&path) {
+                self.collapsed.remove(&path);
+            } else {
+                self.collapsed.insert(path);
+            }
+        }
+
+        self.selected = new_selected;
     }
 }
 

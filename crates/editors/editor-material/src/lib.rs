@@ -25,6 +25,8 @@ pub struct MaterialEditor {
     selected_node: Option<usize>,
     /// Next unique node ID.
     next_id: usize,
+    /// Index of the node currently being dragged, if any.
+    dragging_node: Option<usize>,
 }
 
 impl Default for MaterialEditor {
@@ -57,6 +59,7 @@ impl Default for MaterialEditor {
             pan: egui::Vec2::ZERO,
             selected_node: None,
             next_id: 3,
+            dragging_node: None,
         }
     }
 }
@@ -124,10 +127,39 @@ impl EditorPanel for MaterialEditor {
 
         // Node graph canvas (placeholder rendering)
         let available = ui.available_size();
-        let (canvas_rect, response) = ui.allocate_exact_size(available, egui::Sense::drag());
+        let (canvas_rect, response) = ui.allocate_exact_size(available, egui::Sense::click_and_drag());
 
+        // Node dimensions (needed before drag handling below).
+        let node_w = 120.0 * self.zoom;
+        let node_h = 64.0 * self.zoom;
+
+        // ── Drag handling: node drag vs. canvas pan ───────────────────────────
+        if response.drag_started() {
+            self.dragging_node = None;
+            if let Some(pos) = response.interact_pointer_pos() {
+                for (idx, node) in self.nodes.iter().enumerate() {
+                    let top_left = canvas_rect.min + self.pan + node.pos.to_vec2() * self.zoom;
+                    let rect = egui::Rect::from_min_size(top_left, egui::vec2(node_w, node_h));
+                    if rect.contains(pos) {
+                        self.dragging_node = Some(idx);
+                        self.selected_node = Some(idx);
+                        break;
+                    }
+                }
+            }
+        }
         if response.dragged() {
-            self.pan += response.drag_delta();
+            let delta = response.drag_delta();
+            if let Some(idx) = self.dragging_node {
+                if let Some(node) = self.nodes.get_mut(idx) {
+                    node.pos += delta / self.zoom;
+                }
+            } else {
+                self.pan += delta;
+            }
+        }
+        if response.drag_stopped() {
+            self.dragging_node = None;
         }
 
         let painter = ui.painter_at(canvas_rect);
@@ -149,8 +181,6 @@ impl EditorPanel for MaterialEditor {
         }
 
         // Draw nodes
-        let node_w = 120.0 * self.zoom;
-        let node_h = 64.0 * self.zoom;
         let mut new_selected = self.selected_node;
         for (idx, node) in self.nodes.iter().enumerate() {
             let top_left = canvas_rect.min + self.pan + node.pos.to_vec2() * self.zoom;
@@ -210,7 +240,7 @@ impl EditorPanel for MaterialEditor {
         painter.text(
             canvas_rect.center() + egui::vec2(0.0, canvas_rect.height() * 0.35),
             egui::Align2::CENTER_CENTER,
-            "Node Graph — drag to pan  •  click a node to select  •  full egui_node_graph integration pending",
+            "Node Graph — drag canvas to pan  •  drag a node to move it  •  click a node to select",
             egui::FontId::proportional(11.0),
             Color32::from_rgb(70, 70, 90),
         );
