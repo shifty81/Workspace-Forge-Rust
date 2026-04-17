@@ -10,6 +10,23 @@ account or central authentication requirement.
 
 ---
 
+## Built Upon & Acknowledgements
+
+NovaForge Workspace stands on the shoulders of extraordinary open-source work.
+
+| Project | Role | Link |
+|---|---|---|
+| **Nova-Forge** by shifty81 | The game this workspace is built to serve | [github.com/shifty81/Nova-Forge](https://github.com/shifty81/Nova-Forge) |
+| **AtlasWorkspace** by shifty81 | C++ workspace whose design & editor roster inspired this project | [github.com/shifty81/AtlasWorkspace](https://github.com/shifty81/AtlasWorkspace) |
+| **Veloren** open-source community | Voxel RPG engine at the heart of Nova-Forge | [veloren.net](https://veloren.net) |
+| **egui / eframe** by emilk | Immediate-mode GUI powering every editor panel | [github.com/emilk/egui](https://github.com/emilk/egui) |
+| **egui_dock** contributors | Docking layout system for the master editor | [github.com/Adanos020/egui_dock](https://github.com/Adanos020/egui_dock) |
+| **The Rust Community** | Language, toolchain, and crates.io ecosystem | [rust-lang.org](https://www.rust-lang.org) |
+
+> Full credits with contributor details are in the [Credits & Acknowledgements](#credits--acknowledgements) section below.
+
+---
+
 ## What is NovaForge Workspace?
 
 | Feature | Description |
@@ -170,7 +187,7 @@ A sincere thank you to everyone listed here.
 
 ### egui_dock
 
-- **Bartek Iwańczuk** and the [egui_dock contributors](https://github.com/Adanos020/egui_dock)
+- The [egui_dock contributors](https://github.com/Adanos020/egui_dock)
   for the docking layout system used in the master editor.
 
 ### The Rust Community

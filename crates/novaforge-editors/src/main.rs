@@ -172,7 +172,7 @@ impl EditorApp {
         //   bottom strip:   Build  |  AI Tool
         let mut dock_state = DockState::new(vec![Tab::Scene]);
 
-        let [centre, left] = dock_state.main_surface_mut().split_left(
+        let [centre, _left] = dock_state.main_surface_mut().split_left(
             NodeIndex::root(),
             0.18,
             vec![Tab::WorkspaceBrowser],
@@ -191,10 +191,6 @@ impl EditorApp {
         dock_state.main_surface_mut().push_to_focused_leaf(Tab::Ui);
         dock_state.main_surface_mut().push_to_focused_leaf(Tab::Animation);
         dock_state.main_surface_mut().push_to_focused_leaf(Tab::Data);
-
-        // Silence the unused variable warnings — we reference these indices
-        // only during layout construction above.
-        let _ = left;
 
         Self {
             dock_state,
