@@ -13,4 +13,3 @@
 project_name    = "Nova-Forge"
 nova_forge_path = "nova-forge"
 asset_root      = "nova-forge/assets"
-active_scene    = "common/maps/dungeon.ron"
