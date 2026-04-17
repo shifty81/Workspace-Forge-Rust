@@ -58,6 +58,9 @@ Every tab can be **dragged** to a different location, **closed** (View menu →
 uncheck the panel name), or **re-opened** (View menu → check it back on).
 **View → Reset Layout** restores the default arrangement.
 
+The editor opens in **dark mode** by default.  Switch between dark and light via
+**View → Theme → 🌙 Dark / ☀ Light** at any time.
+
 ---
 
 ## Panel Reference

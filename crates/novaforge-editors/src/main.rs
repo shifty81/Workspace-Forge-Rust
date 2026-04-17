@@ -33,7 +33,11 @@ fn main() -> eframe::Result<()> {
                 .with_title("NovaForge Workspace — Editor Suite"),
             ..Default::default()
         },
-        Box::new(|_cc| Ok(Box::new(EditorApp::new()))),
+        Box::new(|cc| {
+            // Apply dark visuals immediately so the very first frame is dark.
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            Ok(Box::new(EditorApp::new()))
+        }),
     )
 }
 
@@ -152,6 +156,34 @@ impl TabViewer for EditorTabViewer<'_> {
 }
 
 // ---------------------------------------------------------------------------
+// Theme
+// ---------------------------------------------------------------------------
+
+/// Editor colour theme.  Defaults to [`Theme::Dark`].
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+enum Theme {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl Theme {
+    fn visuals(self) -> egui::Visuals {
+        match self {
+            Theme::Dark => egui::Visuals::dark(),
+            Theme::Light => egui::Visuals::light(),
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Theme::Dark => "🌙 Dark",
+            Theme::Light => "☀ Light",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Master editor app
 // ---------------------------------------------------------------------------
 
@@ -162,6 +194,7 @@ struct EditorApp {
     project_path_input: String,
     panel_ctx: PanelContext,
     status: String,
+    theme: Theme,
 }
 
 impl EditorApp {
@@ -208,6 +241,7 @@ impl EditorApp {
             project_path_input: String::new(),
             panel_ctx: PanelContext::default(),
             status: "No project loaded.".to_string(),
+            theme: Theme::Dark,
         }
     }
 
@@ -314,8 +348,17 @@ impl EditorApp {
                         }
                     }
                     ui.separator();
+                    ui.label(egui::RichText::new("Theme").weak());
+                    for t in [Theme::Dark, Theme::Light] {
+                        if ui.radio(self.theme == t, t.label()).clicked() {
+                            self.theme = t;
+                        }
+                    }
+                    ui.separator();
                     if ui.button("Reset Layout").clicked() {
+                        let theme = self.theme;
                         *self = EditorApp::new();
+                        self.theme = theme;
                         ui.close_menu();
                     }
                 });
@@ -376,6 +419,9 @@ impl EditorApp {
 
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Keep visuals in sync with the chosen theme (cheap — egui deduplicates).
+        ctx.set_visuals(self.theme.visuals());
+
         // Background updates (build log polling, animation playhead)
         self.panels.background_update_all();
 
