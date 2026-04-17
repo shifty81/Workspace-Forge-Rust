@@ -137,7 +137,10 @@ impl SceneEditor {
                     let count = file.entities.len();
                     self.entities = file.entities;
                     self.selected = None;
-                    self.entity_counter = count as u32;
+                    // Keep entity_counter monotonically increasing so that new
+                    // entities added after a load never share a name with
+                    // entities that already exist in the scene.
+                    self.entity_counter = self.entity_counter.max(count as u32);
                     self.scene_status =
                         format!("Loaded {count} entities ← {}", path.display());
                 }
