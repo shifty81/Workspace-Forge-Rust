@@ -5,8 +5,8 @@ use novaforge_ui::{EditorPanel, PanelContext};
 
 /// A node in the material graph.
 #[derive(Clone)]
-#[allow(dead_code)]
 struct MaterialNode {
+    #[allow(dead_code)]
     id: usize,
     label: String,
     pos: egui::Pos2,
@@ -22,6 +22,9 @@ pub struct MaterialEditor {
     nodes: Vec<MaterialNode>,
     zoom: f32,
     pan: egui::Vec2,
+    selected_node: Option<usize>,
+    /// Next unique node ID.
+    next_id: usize,
 }
 
 impl Default for MaterialEditor {
@@ -52,6 +55,8 @@ impl Default for MaterialEditor {
             ],
             zoom: 1.0,
             pan: egui::Vec2::ZERO,
+            selected_node: None,
+            next_id: 3,
         }
     }
 }
@@ -65,10 +70,32 @@ impl EditorPanel for MaterialEditor {
         // Toolbar
         ui.horizontal(|ui| {
             if ui.button("＋ Add Node").clicked() {
-                // TODO: add node dialog
+                let id = self.next_id;
+                self.next_id += 1;
+                // Place the new node offset from the last one so it's visible.
+                let offset = egui::vec2(20.0, 20.0) * id as f32;
+                self.nodes.push(MaterialNode {
+                    id,
+                    label: format!("Node {id}"),
+                    pos: egui::pos2(80.0, 80.0) + offset,
+                    inputs: vec!["In".to_string()],
+                    output: "Out".to_string(),
+                });
+                self.selected_node = Some(self.nodes.len() - 1);
             }
-            if ui.button("🗑 Delete Node").clicked() {
-                // TODO: delete selected node
+            let delete_enabled = self.selected_node.is_some();
+            if ui
+                .add_enabled(delete_enabled, egui::Button::new("🗑 Delete Node"))
+                .clicked()
+            {
+                if let Some(idx) = self.selected_node {
+                    self.nodes.remove(idx);
+                    self.selected_node = if self.nodes.is_empty() {
+                        None
+                    } else {
+                        Some(idx.min(self.nodes.len() - 1))
+                    };
+                }
             }
             ui.separator();
             if ui.button("🔍＋ Zoom In").clicked() {
@@ -80,6 +107,16 @@ impl EditorPanel for MaterialEditor {
             if ui.button("⊙ Reset View").clicked() {
                 self.zoom = 1.0;
                 self.pan = egui::Vec2::ZERO;
+            }
+            if let Some(idx) = self.selected_node {
+                if let Some(node) = self.nodes.get(idx) {
+                    ui.separator();
+                    ui.label(
+                        egui::RichText::new(format!("Selected: {}", node.label))
+                            .size(11.0)
+                            .color(Color32::from_rgb(140, 200, 255)),
+                    );
+                }
             }
         });
 
@@ -114,7 +151,8 @@ impl EditorPanel for MaterialEditor {
         // Draw nodes
         let node_w = 120.0 * self.zoom;
         let node_h = 64.0 * self.zoom;
-        for node in &self.nodes {
+        let mut new_selected = self.selected_node;
+        for (idx, node) in self.nodes.iter().enumerate() {
             let top_left = canvas_rect.min + self.pan + node.pos.to_vec2() * self.zoom;
             let rect = egui::Rect::from_min_size(top_left, egui::vec2(node_w, node_h));
 
@@ -122,11 +160,23 @@ impl EditorPanel for MaterialEditor {
                 continue;
             }
 
-            painter.rect_filled(rect, 6.0, Color32::from_rgb(45, 45, 58));
+            let is_selected = self.selected_node == Some(idx);
+            let fill = if is_selected {
+                Color32::from_rgb(60, 60, 80)
+            } else {
+                Color32::from_rgb(45, 45, 58)
+            };
+            let border_color = if is_selected {
+                Color32::from_rgb(140, 180, 255)
+            } else {
+                Color32::from_rgb(100, 100, 130)
+            };
+
+            painter.rect_filled(rect, 6.0, fill);
             painter.rect_stroke(
                 rect,
                 6.0,
-                egui::Stroke::new(1.5, Color32::from_rgb(100, 100, 130)),
+                egui::Stroke::new(if is_selected { 2.0 } else { 1.5 }, border_color),
                 egui::StrokeKind::Middle,
             );
             painter.text(
@@ -147,12 +197,20 @@ impl EditorPanel for MaterialEditor {
                 let port = egui::pos2(rect.left(), y);
                 painter.circle_filled(port, 5.0 * self.zoom, Color32::from_rgb(200, 140, 80));
             }
+
+            // Click-to-select — interact with a rect in the egui layer.
+            let node_response =
+                ui.interact(rect, ui.id().with(("mat_node", idx)), egui::Sense::click());
+            if node_response.clicked() {
+                new_selected = Some(idx);
+            }
         }
+        self.selected_node = new_selected;
 
         painter.text(
             canvas_rect.center() + egui::vec2(0.0, canvas_rect.height() * 0.35),
             egui::Align2::CENTER_CENTER,
-            "Node Graph — drag to pan  •  full egui_node_graph integration pending",
+            "Node Graph — drag to pan  •  click a node to select  •  full egui_node_graph integration pending",
             egui::FontId::proportional(11.0),
             Color32::from_rgb(70, 70, 90),
         );

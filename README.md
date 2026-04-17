@@ -57,6 +57,15 @@ NovaForge Workspace stands on the shoulders of extraordinary open-source work.
 
 ---
 
+## Documentation
+
+| Guide | Description |
+|---|---|
+| **[Editor Guide](docs/editor-guide.md)** | How to use every panel in the editor suite |
+| **[Build Guide](docs/building.md)** | How to build the workspace tools and the Nova-Forge game |
+
+---
+
 ## Getting Started
 
 ### Prerequisites
