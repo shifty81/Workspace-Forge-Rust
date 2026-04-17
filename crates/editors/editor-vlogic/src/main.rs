@@ -1,8 +1,8 @@
 //! Standalone launcher for the Visual Logic Editor.
 //! Compile with: `cargo run -p editor-vlogic --features standalone`
 
-use eframe::egui;
 use editor_vlogic::VLogicEditor;
+use eframe::egui;
 use novaforge_ui::{EditorPanel, PanelContext};
 
 fn main() -> eframe::Result<()> {
@@ -23,7 +23,10 @@ struct StandaloneApp<P: EditorPanel> {
 
 impl<P: EditorPanel> StandaloneApp<P> {
     fn new(panel: P) -> Self {
-        Self { panel, ctx: PanelContext::default() }
+        Self {
+            panel,
+            ctx: PanelContext::default(),
+        }
     }
 }
 

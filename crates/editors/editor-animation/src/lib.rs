@@ -34,21 +34,39 @@ impl Default for AnimationEditor {
                 Track {
                     name: "Root Bone".to_string(),
                     keyframes: vec![
-                        Keyframe { time: 0.0, label: "A".to_string() },
-                        Keyframe { time: 0.5, label: "B".to_string() },
-                        Keyframe { time: 1.0, label: "C".to_string() },
+                        Keyframe {
+                            time: 0.0,
+                            label: "A".to_string(),
+                        },
+                        Keyframe {
+                            time: 0.5,
+                            label: "B".to_string(),
+                        },
+                        Keyframe {
+                            time: 1.0,
+                            label: "C".to_string(),
+                        },
                     ],
                 },
                 Track {
                     name: "Weapon".to_string(),
                     keyframes: vec![
-                        Keyframe { time: 0.2, label: "A".to_string() },
-                        Keyframe { time: 0.8, label: "B".to_string() },
+                        Keyframe {
+                            time: 0.2,
+                            label: "A".to_string(),
+                        },
+                        Keyframe {
+                            time: 0.8,
+                            label: "B".to_string(),
+                        },
                     ],
                 },
                 Track {
                     name: "FX".to_string(),
-                    keyframes: vec![Keyframe { time: 0.6, label: "A".to_string() }],
+                    keyframes: vec![Keyframe {
+                        time: 0.6,
+                        label: "A".to_string(),
+                    }],
                 },
             ],
             playhead: 0.0,
@@ -80,7 +98,11 @@ impl EditorPanel for AnimationEditor {
             if ui.button("⏮ Start").clicked() {
                 self.playhead = 0.0;
             }
-            let play_label = if self.playing { "⏸ Pause" } else { "▶ Play" };
+            let play_label = if self.playing {
+                "⏸ Pause"
+            } else {
+                "▶ Play"
+            };
             if ui.button(play_label).clicked() {
                 self.playing = !self.playing;
             }
@@ -89,7 +111,10 @@ impl EditorPanel for AnimationEditor {
                 self.playhead = 0.0;
             }
             ui.separator();
-            ui.label(format!("Time: {:.2} / {:.2} s", self.playhead, self.duration));
+            ui.label(format!(
+                "Time: {:.2} / {:.2} s",
+                self.playhead, self.duration
+            ));
             ui.separator();
             ui.label("Zoom:");
             if ui.button("＋").clicked() {
@@ -128,7 +153,13 @@ impl EditorPanel for AnimationEditor {
             painter.rect_filled(ruler_rect, 0.0, Color32::from_rgb(35, 35, 44));
 
             let px_per_sec = timeline_w / self.duration * self.zoom;
-            let tick_step = if self.zoom > 2.0 { 0.1 } else if self.zoom > 0.5 { 0.5 } else { 1.0 };
+            let tick_step = if self.zoom > 2.0 {
+                0.1
+            } else if self.zoom > 0.5 {
+                0.5
+            } else {
+                1.0
+            };
             let mut t = 0.0_f32;
             while t <= self.duration {
                 let x = ruler_rect.left() + t * px_per_sec;
@@ -136,7 +167,10 @@ impl EditorPanel for AnimationEditor {
                     break;
                 }
                 painter.line_segment(
-                    [egui::pos2(x, ruler_rect.top()), egui::pos2(x, ruler_rect.bottom())],
+                    [
+                        egui::pos2(x, ruler_rect.top()),
+                        egui::pos2(x, ruler_rect.bottom()),
+                    ],
                     egui::Stroke::new(1.0, Color32::from_rgb(80, 80, 100)),
                 );
                 painter.text(
@@ -177,10 +211,8 @@ impl EditorPanel for AnimationEditor {
                         continue;
                     }
                     let ky = y_top + row_h * 0.5;
-                    let kf_rect = egui::Rect::from_center_size(
-                        egui::pos2(kx, ky),
-                        egui::vec2(10.0, 10.0),
-                    );
+                    let kf_rect =
+                        egui::Rect::from_center_size(egui::pos2(kx, ky), egui::vec2(10.0, 10.0));
                     painter.rect_filled(kf_rect, 2.0, Color32::from_rgb(220, 180, 60));
                     painter.rect_stroke(
                         kf_rect,

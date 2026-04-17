@@ -120,21 +120,57 @@ impl EditorPanel for SceneEditor {
             .spacing([4.0, 2.0])
             .show(ui, |ui| {
                 ui.label("Position");
-                ui.add(egui::DragValue::new(&mut self.position[0]).prefix("X ").speed(0.1));
-                ui.add(egui::DragValue::new(&mut self.position[1]).prefix("Y ").speed(0.1));
-                ui.add(egui::DragValue::new(&mut self.position[2]).prefix("Z ").speed(0.1));
+                ui.add(
+                    egui::DragValue::new(&mut self.position[0])
+                        .prefix("X ")
+                        .speed(0.1),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.position[1])
+                        .prefix("Y ")
+                        .speed(0.1),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.position[2])
+                        .prefix("Z ")
+                        .speed(0.1),
+                );
                 ui.end_row();
 
                 ui.label("Rotation");
-                ui.add(egui::DragValue::new(&mut self.rotation[0]).prefix("X ").speed(0.5));
-                ui.add(egui::DragValue::new(&mut self.rotation[1]).prefix("Y ").speed(0.5));
-                ui.add(egui::DragValue::new(&mut self.rotation[2]).prefix("Z ").speed(0.5));
+                ui.add(
+                    egui::DragValue::new(&mut self.rotation[0])
+                        .prefix("X ")
+                        .speed(0.5),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.rotation[1])
+                        .prefix("Y ")
+                        .speed(0.5),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.rotation[2])
+                        .prefix("Z ")
+                        .speed(0.5),
+                );
                 ui.end_row();
 
                 ui.label("Scale   ");
-                ui.add(egui::DragValue::new(&mut self.scale[0]).prefix("X ").speed(0.01));
-                ui.add(egui::DragValue::new(&mut self.scale[1]).prefix("Y ").speed(0.01));
-                ui.add(egui::DragValue::new(&mut self.scale[2]).prefix("Z ").speed(0.01));
+                ui.add(
+                    egui::DragValue::new(&mut self.scale[0])
+                        .prefix("X ")
+                        .speed(0.01),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.scale[1])
+                        .prefix("Y ")
+                        .speed(0.01),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut self.scale[2])
+                        .prefix("Z ")
+                        .speed(0.01),
+                );
                 ui.end_row();
             });
     }

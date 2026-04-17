@@ -2,11 +2,13 @@
 //!
 //! Provides a spreadsheet-style editor for game data tables such as item
 //! definitions, NPC stats, loot tables, and configuration values.
+//! Rows can be added, edited, deleted, and saved to TOML.
 
 use novaforge_ui::{EditorPanel, PanelContext};
+use serde::{Deserialize, Serialize};
 
 /// A single row in the data table.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct DataRow {
     id: String,
     name: String,
@@ -21,6 +23,8 @@ pub struct DataEditor {
     selected_row: Option<usize>,
     filter: String,
     edit_buf: DataRow,
+    /// Status message shown below the toolbar.
+    save_status: String,
 }
 
 impl Default for DataEditor {
@@ -66,6 +70,50 @@ impl Default for DataEditor {
             selected_row: None,
             filter: String::new(),
             edit_buf: placeholder,
+            save_status: String::new(),
+        }
+    }
+}
+
+impl DataEditor {
+    /// Serialise all rows to TOML and write to `path`.
+    fn save_to_toml(&mut self, ctx: &PanelContext) {
+        // Derive save path from the asset root: <asset_root>/data/data_table.toml
+        let save_path = ctx
+            .asset_root
+            .as_ref()
+            .map(|r| r.join("data").join("data_table.toml"));
+
+        let Some(path) = save_path else {
+            self.save_status = "No project loaded — cannot determine save path.".to_string();
+            return;
+        };
+
+        // Ensure the parent directory exists.
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                self.save_status = format!("Directory error: {e}");
+                return;
+            }
+        }
+
+        // Serialise as TOML array of tables.
+        #[derive(Serialize)]
+        struct TableFile<'a> {
+            rows: &'a [DataRow],
+        }
+        match toml::to_string_pretty(&TableFile { rows: &self.rows }) {
+            Ok(content) => match std::fs::write(&path, content) {
+                Ok(()) => {
+                    self.save_status = format!("Saved → {}", path.display());
+                }
+                Err(e) => {
+                    self.save_status = format!("Write error: {e}");
+                }
+            },
+            Err(e) => {
+                self.save_status = format!("Serialise error: {e}");
+            }
         }
     }
 }
@@ -75,7 +123,7 @@ impl EditorPanel for DataEditor {
         "Data Editor"
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &PanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &PanelContext) {
         // Toolbar
         ui.horizontal(|ui| {
             ui.label("🔍");
@@ -103,9 +151,17 @@ impl EditorPanel for DataEditor {
                 }
             }
             if ui.button("💾 Save").clicked() {
-                // TODO: serialise to RON / TOML
+                self.save_to_toml(ctx);
             }
         });
+
+        if !self.save_status.is_empty() {
+            ui.label(
+                egui::RichText::new(&self.save_status)
+                    .size(11.0)
+                    .color(egui::Color32::from_rgb(160, 200, 160)),
+            );
+        }
 
         ui.separator();
 
@@ -166,10 +222,7 @@ impl EditorPanel for DataEditor {
 
             egui::Grid::new("row_edit").num_columns(2).show(ui, |ui| {
                 ui.label("ID");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.edit_buf.id)
-                        .desired_width(240.0),
-                );
+                ui.add(egui::TextEdit::singleline(&mut self.edit_buf.id).desired_width(240.0));
                 ui.end_row();
                 ui.label("Name");
                 ui.text_edit_singleline(&mut self.edit_buf.name);

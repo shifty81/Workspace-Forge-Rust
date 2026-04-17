@@ -3,6 +3,108 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+// ---------------------------------------------------------------------------
+// Asset scanning
+// ---------------------------------------------------------------------------
+
+/// Kind of a discovered asset file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetKind {
+    Texture,
+    Model,
+    Sound,
+    Scene,
+    Other,
+}
+
+impl AssetKind {
+    /// Infer the kind from a file extension.
+    pub fn from_extension(ext: &str) -> Self {
+        match ext.to_lowercase().as_str() {
+            "png" | "jpg" | "jpeg" | "webp" | "tga" | "bmp" => Self::Texture,
+            "vox" | "obj" | "gltf" | "glb" | "fbx" | "mesh" => Self::Model,
+            "ogg" | "wav" | "mp3" | "flac" => Self::Sound,
+            "ron" | "scene" => Self::Scene,
+            _ => Self::Other,
+        }
+    }
+
+    /// Icon glyph for display in UI.
+    pub fn icon(self) -> &'static str {
+        match self {
+            Self::Texture => "🖼",
+            Self::Model => "📦",
+            Self::Sound => "🔊",
+            Self::Scene => "🌐",
+            Self::Other => "📄",
+        }
+    }
+}
+
+/// A discovered asset file under the asset root.
+#[derive(Debug, Clone)]
+pub struct AssetEntry {
+    /// Display path relative to the asset root.
+    pub relative_path: String,
+    /// Inferred asset kind.
+    pub kind: AssetKind,
+}
+
+/// Recursively scan `root` for asset files up to `max_depth` directory levels.
+///
+/// Returns entries sorted: directories are listed before files, then both
+/// groups are sorted by name.
+///
+/// # Example
+/// ```rust
+/// use novaforge_project::scan_assets;
+/// use std::path::Path;
+/// let entries = scan_assets(Path::new("."), 2);
+/// // entries is a Vec<AssetEntry>
+/// ```
+pub fn scan_assets(root: &Path, max_depth: usize) -> Vec<AssetEntry> {
+    let mut out = Vec::new();
+    scan_dir_inner(root, root, 0, max_depth, &mut out);
+    out
+}
+
+fn scan_dir_inner(
+    root: &Path,
+    current: &Path,
+    depth: usize,
+    max_depth: usize,
+    out: &mut Vec<AssetEntry>,
+) {
+    if depth > max_depth {
+        return;
+    }
+    let Ok(read) = std::fs::read_dir(current) else {
+        return;
+    };
+
+    let mut entries: Vec<std::fs::DirEntry> = read.flatten().collect();
+    // Directories first, then files; each group sorted by name.
+    entries.sort_by_key(|e| (!e.path().is_dir(), e.file_name()));
+
+    for entry in entries {
+        let path = entry.path();
+        let rel = path
+            .strip_prefix(root)
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| path.to_string_lossy().into_owned());
+
+        if path.is_dir() {
+            scan_dir_inner(root, &path, depth + 1, max_depth, out);
+        } else {
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            out.push(AssetEntry {
+                relative_path: rel,
+                kind: AssetKind::from_extension(ext),
+            });
+        }
+    }
+}
+
 /// File name written at the root of a NovaForge project directory.
 pub const MANIFEST_FILE: &str = "novaforge.workspace.toml";
 
@@ -120,5 +222,42 @@ mod tests {
     fn nova_forge_binary_path_is_non_empty() {
         let m = WorkspaceManifest::default();
         assert!(!m.nova_forge_binary().as_os_str().is_empty());
+    }
+
+    #[test]
+    fn scan_assets_returns_files_in_tmp() {
+        let dir = std::env::temp_dir().join("novaforge_test_scan");
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(dir.join("hero.png"), b"").unwrap();
+        std::fs::write(dir.join("map.ron"), b"").unwrap();
+
+        let entries = scan_assets(&dir, 2);
+        assert!(entries.iter().any(|e| e.relative_path.contains("hero.png")));
+        assert!(entries.iter().any(|e| e.relative_path.contains("map.ron")));
+
+        let png = entries
+            .iter()
+            .find(|e| e.relative_path.contains("hero.png"))
+            .unwrap();
+        assert_eq!(png.kind, AssetKind::Texture);
+
+        let ron = entries
+            .iter()
+            .find(|e| e.relative_path.contains("map.ron"))
+            .unwrap();
+        assert_eq!(ron.kind, AssetKind::Scene);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn asset_kind_from_extension() {
+        assert_eq!(AssetKind::from_extension("png"), AssetKind::Texture);
+        assert_eq!(AssetKind::from_extension("PNG"), AssetKind::Texture);
+        assert_eq!(AssetKind::from_extension("vox"), AssetKind::Model);
+        assert_eq!(AssetKind::from_extension("ogg"), AssetKind::Sound);
+        assert_eq!(AssetKind::from_extension("ron"), AssetKind::Scene);
+        assert_eq!(AssetKind::from_extension("xyz"), AssetKind::Other);
     }
 }

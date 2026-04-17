@@ -11,9 +11,10 @@ repository.workspace = true
 standalone = ["eframe"]
 
 [dependencies]
-egui         = { workspace = true }
-novaforge-ui = { workspace = true }
-eframe       = { workspace = true, optional = true }
+egui              = { workspace = true }
+novaforge-ui      = { workspace = true }
+novaforge-project = { workspace = true }
+eframe            = { workspace = true, optional = true }
 
 [[bin]]
 name              = "editor-asset"

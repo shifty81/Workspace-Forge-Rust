@@ -1,8 +1,8 @@
 //! Standalone launcher for the Animation Editor.
 //! Compile with: `cargo run -p editor-animation --features standalone`
 
-use eframe::egui;
 use editor_animation::AnimationEditor;
+use eframe::egui;
 use novaforge_ui::{EditorPanel, PanelContext};
 
 fn main() -> eframe::Result<()> {
@@ -23,7 +23,10 @@ struct StandaloneApp<P: EditorPanel> {
 
 impl<P: EditorPanel> StandaloneApp<P> {
     fn new(panel: P) -> Self {
-        Self { panel, ctx: PanelContext::default() }
+        Self {
+            panel,
+            ctx: PanelContext::default(),
+        }
     }
 }
 

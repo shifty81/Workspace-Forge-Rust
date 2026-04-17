@@ -87,8 +87,7 @@ impl EditorPanel for MaterialEditor {
 
         // Node graph canvas (placeholder rendering)
         let available = ui.available_size();
-        let (canvas_rect, response) =
-            ui.allocate_exact_size(available, egui::Sense::drag());
+        let (canvas_rect, response) = ui.allocate_exact_size(available, egui::Sense::drag());
 
         if response.dragged() {
             self.pan += response.drag_delta();
@@ -106,11 +105,7 @@ impl EditorPanel for MaterialEditor {
         while x < canvas_rect.right() {
             let mut y = canvas_rect.top() + offset_y;
             while y < canvas_rect.bottom() {
-                painter.circle_filled(
-                    egui::pos2(x, y),
-                    1.0,
-                    Color32::from_rgb(50, 50, 62),
-                );
+                painter.circle_filled(egui::pos2(x, y), 1.0, Color32::from_rgb(50, 50, 62));
                 y += step;
             }
             x += step;
@@ -120,9 +115,7 @@ impl EditorPanel for MaterialEditor {
         let node_w = 120.0 * self.zoom;
         let node_h = 64.0 * self.zoom;
         for node in &self.nodes {
-            let top_left = canvas_rect.min
-                + self.pan
-                + node.pos.to_vec2() * self.zoom;
+            let top_left = canvas_rect.min + self.pan + node.pos.to_vec2() * self.zoom;
             let rect = egui::Rect::from_min_size(top_left, egui::vec2(node_w, node_h));
 
             if !canvas_rect.intersects(rect) {

@@ -31,17 +31,26 @@ impl Default for UiEditorPanel {
             widgets: vec![
                 UiWidget {
                     label: "HUD Panel".to_string(),
-                    rect: egui::Rect::from_min_size(egui::pos2(40.0, 40.0), egui::vec2(160.0, 80.0)),
+                    rect: egui::Rect::from_min_size(
+                        egui::pos2(40.0, 40.0),
+                        egui::vec2(160.0, 80.0),
+                    ),
                     selected: false,
                 },
                 UiWidget {
                     label: "Health Bar".to_string(),
-                    rect: egui::Rect::from_min_size(egui::pos2(60.0, 60.0), egui::vec2(120.0, 20.0)),
+                    rect: egui::Rect::from_min_size(
+                        egui::pos2(60.0, 60.0),
+                        egui::vec2(120.0, 20.0),
+                    ),
                     selected: false,
                 },
                 UiWidget {
                     label: "Minimap".to_string(),
-                    rect: egui::Rect::from_min_size(egui::pos2(240.0, 30.0), egui::vec2(80.0, 80.0)),
+                    rect: egui::Rect::from_min_size(
+                        egui::pos2(240.0, 30.0),
+                        egui::vec2(80.0, 80.0),
+                    ),
                     selected: false,
                 },
             ],

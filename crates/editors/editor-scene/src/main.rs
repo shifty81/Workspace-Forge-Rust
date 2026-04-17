@@ -1,8 +1,8 @@
 //! Standalone launcher for the Scene Editor.
 //! Compile with: `cargo run -p editor-scene --features standalone`
 
-use eframe::egui;
 use editor_scene::SceneEditor;
+use eframe::egui;
 use novaforge_ui::{EditorPanel, PanelContext};
 
 fn main() -> eframe::Result<()> {
@@ -12,7 +12,11 @@ fn main() -> eframe::Result<()> {
             viewport: egui::ViewportBuilder::default().with_inner_size([1024.0, 768.0]),
             ..Default::default()
         },
-        Box::new(|_cc| Ok(Box::new(StandaloneApp::<SceneEditor>::new(SceneEditor::new())))),
+        Box::new(|_cc| {
+            Ok(Box::new(StandaloneApp::<SceneEditor>::new(
+                SceneEditor::new(),
+            )))
+        }),
     )
 }
 
@@ -23,7 +27,10 @@ struct StandaloneApp<P: EditorPanel> {
 
 impl<P: EditorPanel> StandaloneApp<P> {
     fn new(panel: P) -> Self {
-        Self { panel, ctx: PanelContext::default() }
+        Self {
+            panel,
+            ctx: PanelContext::default(),
+        }
     }
 }
 

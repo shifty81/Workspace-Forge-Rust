@@ -143,10 +143,7 @@ impl LauncherApp {
             ui.label(egui::RichText::new("Recent projects").size(11.0));
             let mut open_path: Option<PathBuf> = None;
             for path in &self.recent_projects {
-                if ui
-                    .small_button(path.display().to_string())
-                    .clicked()
-                {
+                if ui.small_button(path.display().to_string()).clicked() {
                     open_path = Some(path.clone());
                 }
             }
@@ -240,9 +237,7 @@ impl LauncherApp {
             Ok(manifest) => {
                 self.status = format!("Opened: {}", manifest.project_name);
                 // Track in recent list.
-                let canonical = path
-                    .canonicalize()
-                    .unwrap_or_else(|_| path.to_path_buf());
+                let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
                 self.recent_projects.retain(|p| p != &canonical);
                 self.recent_projects.insert(0, canonical);
                 self.recent_projects.truncate(5);

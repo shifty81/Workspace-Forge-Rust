@@ -83,11 +83,7 @@ impl BuildRunner {
         let arg = cmd.script_arg();
 
         thread::spawn(move || {
-            let _ = tx.send(format!(
-                "[workspace] Running: {} {}",
-                script.display(),
-                arg
-            ));
+            let _ = tx.send(format!("[workspace] Running: {} {}", script.display(), arg));
 
             let result = Command::new(&script)
                 .arg(arg)

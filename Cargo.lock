@@ -847,6 +847,7 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "novaforge-project",
  "novaforge-ui",
 ]
 
@@ -867,6 +868,8 @@ dependencies = [
  "eframe",
  "egui",
  "novaforge-ui",
+ "serde",
+ "toml",
 ]
 
 [[package]]

@@ -69,7 +69,8 @@ impl BuildToolPanel {
                 self.runner = Some(runner);
                 self.receiver = Some(rx);
                 self.running = true;
-                self.log_lines.push((LogLevel::Info, format!("--- {} ---", cmd.label())));
+                self.log_lines
+                    .push((LogLevel::Info, format!("--- {} ---", cmd.label())));
             }
             None => {
                 self.log_lines.push((
@@ -121,16 +122,28 @@ impl EditorPanel for BuildToolPanel {
         ui.horizontal(|ui| {
             let busy = self.running;
             ui.add_enabled_ui(!busy, |ui| {
-                if ui.button("🔨 Build").on_hover_text("cargo build (debug)").clicked() {
+                if ui
+                    .button("🔨 Build")
+                    .on_hover_text("cargo build (debug)")
+                    .clicked()
+                {
                     self.spawn_command(BuildCommand::Build, nova_forge_path);
                 }
-                if ui.button("🚀 Release").on_hover_text("cargo build --release").clicked() {
+                if ui
+                    .button("🚀 Release")
+                    .on_hover_text("cargo build --release")
+                    .clicked()
+                {
                     self.spawn_command(BuildCommand::Release, nova_forge_path);
                 }
                 if ui.button("🧹 Clean").on_hover_text("cargo clean").clicked() {
                     self.spawn_command(BuildCommand::Clean, nova_forge_path);
                 }
-                if ui.button("▶ Run").on_hover_text("Build and run nova-forge client").clicked() {
+                if ui
+                    .button("▶ Run")
+                    .on_hover_text("Build and run nova-forge client")
+                    .clicked()
+                {
                     self.spawn_command(BuildCommand::Run, nova_forge_path);
                 }
                 if ui.button("🧪 Test").on_hover_text("cargo test").clicked() {

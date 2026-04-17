@@ -45,14 +45,9 @@ pub fn section_header(ui: &mut egui::Ui, label: &str) {
 /// Placeholder viewport / canvas widget drawn as a dark rounded rectangle.
 ///
 /// Returns the [`egui::Response`] for the allocated area.
-pub fn placeholder_viewport(
-    ui: &mut egui::Ui,
-    label: &str,
-    icon: &str,
-) -> egui::Response {
+pub fn placeholder_viewport(ui: &mut egui::Ui, label: &str, icon: &str) -> egui::Response {
     let available = ui.available_size();
-    let (rect, response) =
-        ui.allocate_exact_size(available, egui::Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(available, egui::Sense::hover());
 
     if ui.is_rect_visible(rect) {
         let painter = ui.painter();

@@ -178,19 +178,28 @@ impl EditorApp {
             vec![Tab::WorkspaceBrowser],
         );
 
-        let [_centre, _bottom] = dock_state.main_surface_mut().split_below(
-            centre,
-            0.72,
-            vec![Tab::Build, Tab::AiTool],
-        );
+        let [_centre, _bottom] =
+            dock_state
+                .main_surface_mut()
+                .split_below(centre, 0.72, vec![Tab::Build, Tab::AiTool]);
 
         // Add the remaining panels as tabs in the centre area.
-        dock_state.main_surface_mut().push_to_focused_leaf(Tab::Asset);
-        dock_state.main_surface_mut().push_to_focused_leaf(Tab::Material);
-        dock_state.main_surface_mut().push_to_focused_leaf(Tab::VLogic);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::Asset);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::Material);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::VLogic);
         dock_state.main_surface_mut().push_to_focused_leaf(Tab::Ui);
-        dock_state.main_surface_mut().push_to_focused_leaf(Tab::Animation);
-        dock_state.main_surface_mut().push_to_focused_leaf(Tab::Data);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::Animation);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::Data);
 
         Self {
             dock_state,
@@ -246,7 +255,9 @@ impl EditorApp {
                     asset_root: Some(manifest.asset_root.clone()),
                 };
                 self.status = format!("Project: {}", manifest.project_name);
-                self.panels.workspace_browser.set_root(manifest.asset_root.clone());
+                self.panels
+                    .workspace_browser
+                    .set_root(manifest.asset_root.clone());
                 self.project = Some(manifest);
             }
             Err(e) => {
@@ -352,10 +363,7 @@ impl EditorApp {
             ui.horizontal(|ui| {
                 ui.label(format!(
                     "Project: {}",
-                    self.panel_ctx
-                        .project_name
-                        .as_deref()
-                        .unwrap_or("None")
+                    self.panel_ctx.project_name.as_deref().unwrap_or("None")
                 ));
                 ui.separator();
                 ui.label(&self.status);
@@ -375,14 +383,13 @@ impl eframe::App for EditorApp {
         self.show_status_bar(ctx);
 
         // Dock area fills the remaining space
-        DockArea::new(&mut self.dock_state)
-            .show(
-                ctx,
-                &mut EditorTabViewer {
-                    panels: &mut self.panels,
-                    ctx: &self.panel_ctx,
-                },
-            );
+        DockArea::new(&mut self.dock_state).show(
+            ctx,
+            &mut EditorTabViewer {
+                panels: &mut self.panels,
+                ctx: &self.panel_ctx,
+            },
+        );
     }
 }
 
@@ -472,8 +479,7 @@ impl EditorPanel for WorkspaceBrowser {
         egui::ScrollArea::vertical().show(ui, |ui| {
             let mut new_selected = self.selected;
             for (i, entry) in self.entries.iter().enumerate() {
-                if !filter_lower.is_empty()
-                    && !entry.display.to_lowercase().contains(&filter_lower)
+                if !filter_lower.is_empty() && !entry.display.to_lowercase().contains(&filter_lower)
                 {
                     continue;
                 }
@@ -613,8 +619,7 @@ impl EditorPanel for AiToolPanel {
             );
             let send = ui.button("Send");
             if send.clicked()
-                || (input_widget.lost_focus()
-                    && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                || (input_widget.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
             {
                 self.submit();
             }

@@ -91,8 +91,7 @@ impl EditorPanel for VLogicEditor {
         ui.separator();
 
         let available = ui.available_size();
-        let (canvas_rect, response) =
-            ui.allocate_exact_size(available, egui::Sense::drag());
+        let (canvas_rect, response) = ui.allocate_exact_size(available, egui::Sense::drag());
 
         if response.dragged() {
             self.pan += response.drag_delta();
@@ -119,7 +118,12 @@ impl EditorPanel for VLogicEditor {
         let node_positions: Vec<egui::Pos2> = self
             .nodes
             .iter()
-            .map(|n| canvas_rect.min + self.pan + n.pos.to_vec2() * self.zoom + egui::vec2(60.0 * self.zoom, 16.0 * self.zoom))
+            .map(|n| {
+                canvas_rect.min
+                    + self.pan
+                    + n.pos.to_vec2() * self.zoom
+                    + egui::vec2(60.0 * self.zoom, 16.0 * self.zoom)
+            })
             .collect();
 
         // Hard-coded edges: 0→1, 1→2, 1→3
