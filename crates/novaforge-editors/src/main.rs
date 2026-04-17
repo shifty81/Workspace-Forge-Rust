@@ -9,7 +9,7 @@
 use eframe::egui;
 use egui_dock::{DockArea, DockState, NodeIndex, TabViewer};
 use novaforge_ai::{StubAI, WorkspaceAI};
-use novaforge_project::{WorkspaceManifest, MANIFEST_FILE};
+use novaforge_project::{AssetKind, WorkspaceManifest, MANIFEST_FILE};
 
 // Editor panel imports
 use editor_animation::AnimationEditor;
@@ -414,6 +414,8 @@ struct BrowserEntry {
     path: String,
     is_dir: bool,
     depth: usize,
+    /// Icon string inferred from the file extension for non-directory entries.
+    icon: &'static str,
 }
 
 impl WorkspaceBrowser {
@@ -455,11 +457,18 @@ fn scan_dir(path: &PathBuf, root: &PathBuf, depth: usize) -> Vec<BrowserEntry> {
             .strip_prefix(root)
             .map(|r| r.to_string_lossy().replace('\\', "/"))
             .unwrap_or_else(|_| name.clone());
+        let icon = if is_dir {
+            "📁"
+        } else {
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+            AssetKind::from_extension(ext).icon()
+        };
         entries.push(BrowserEntry {
             display: name,
             path: rel_path,
             is_dir,
             depth,
+            icon,
         });
         if is_dir {
             entries.extend(scan_dir(&p, root, depth + 1));
@@ -481,6 +490,11 @@ impl EditorPanel for WorkspaceBrowser {
                     .hint_text("Filter…")
                     .desired_width(f32::INFINITY),
             );
+            if ui.small_button("⟳").on_hover_text("Refresh file tree").clicked() {
+                if let Some(root) = self.root.clone().or_else(|| ctx.asset_root.clone()) {
+                    self.set_root(root);
+                }
+            }
         });
 
         if let Some(ref root) = self.root {
@@ -537,7 +551,7 @@ impl EditorPanel for WorkspaceBrowser {
                 } else {
                     ui.horizontal(|ui| {
                         ui.add_space(indent);
-                        let label = format!("📄 {}", entry.display);
+                        let label = format!("{} {}", entry.icon, entry.display);
                         let selected = self.selected == Some(i);
                         if ui.selectable_label(selected, label).clicked() {
                             new_selected = Some(i);

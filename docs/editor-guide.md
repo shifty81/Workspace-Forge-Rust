@@ -69,14 +69,16 @@ Displays the file tree of the project's asset root directory.
 | Action | How |
 |---|---|
 | Filter entries | Type in the 🔍 search box at the top |
+| Refresh the file tree | Click the **⟳** button next to the search box |
 | Expand a directory | Click **▾ 📁 dirname** (expanded by default) |
 | Collapse a directory | Click **▾ 📁 dirname** to toggle to **▸ 📁 dirname** |
 | Select a file | Click its row |
-| Refresh | Reload the project (File → Open) |
 
 The browser auto-populates when you open a project and reflects the asset root
 defined in `novaforge.workspace.toml`.  Directories start expanded; click the
-arrow prefix to collapse any subtree.
+arrow prefix to collapse any subtree.  File icons are inferred from their
+extension using the same type map as the Asset Editor (🖼 textures, 📦 models,
+🔊 sounds, 🌐 scenes, 📄 other).
 
 ---
 
@@ -194,10 +196,14 @@ A timeline editor for skeletal animation clips.
 | **▶ Play / ⏸ Pause** | Toggle playback |
 | **⏹ Stop** | Stop and reset playhead to 0 |
 | **Zoom ＋ / −** | Stretch / compress the timeline horizontally |
-| Click a track label | Select the track (required for keyframe operations) |
-| Click a keyframe diamond | Select the keyframe on its track |
+| **Track: [name] ＋ Track** | Type a track name then click **＋ Track** to add a new track |
+| **🗑 Track** | Delete the selected track and all its keyframes (enabled when a track is selected) |
 | **＋ Keyframe** | Add a keyframe at the current playhead position on the selected track |
 | **🗑 Keyframe** | Delete the selected keyframe |
+| **💾 Save** | Serialise tracks to `<asset_root>/animations/animation.toml` |
+| **📂 Load** | Load tracks from `<asset_root>/animations/animation.toml` |
+| Click a track label | Select the track (required for keyframe operations) |
+| Click a keyframe diamond | Select the keyframe on its track |
 | Click the ruler row | Scrub the playhead to that time |
 
 Time is displayed as `<current> / <total>` seconds in the transport bar.  The
@@ -213,7 +219,7 @@ A spreadsheet-style editor for game data tables (items, NPCs, zones, etc.).
 |---|---|
 | 🔍 search box | Filter rows across all columns |
 | **＋ Row** | Append a new blank row |
-| **🗑 Delete** | Remove the selected row |
+| **🗑 Delete** | Remove the selected row (enabled only when a row is selected) |
 | **💾 Save** | Write all rows to `<asset_root>/data/data_table.toml` |
 | **📂 Load** | Load rows from `<asset_root>/data/data_table.toml` |
 | Click a row | Select it; the inline **Edit Row** form appears below |
@@ -234,6 +240,7 @@ Runs `nova-forge.sh` commands and streams live log output.
 | **🚀 Release** | `nova-forge.sh release` (optimised) |
 | **🧹 Clean** | `nova-forge.sh clean` |
 | **▶ Run** | `nova-forge.sh run` (build + launch client) |
+| **🖥 Server** | `nova-forge.sh server` (build + launch dedicated server) |
 | **🧪 Test** | `nova-forge.sh test` |
 | **🗑 Clear** | Clear the log pane |
 | **Auto-scroll** checkbox | Keep the log scrolled to the newest line |
