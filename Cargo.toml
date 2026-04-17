@@ -1,0 +1,65 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/novaforge-workspace",
+    "crates/novaforge-ui",
+    "crates/novaforge-editors",
+    "crates/novaforge-project",
+    "crates/novaforge-build",
+    "crates/novaforge-ai",
+    "crates/editors/editor-scene",
+    "crates/editors/editor-asset",
+    "crates/editors/editor-material",
+    "crates/editors/editor-vlogic",
+    "crates/editors/editor-ui",
+    "crates/editors/editor-animation",
+    "crates/editors/editor-data",
+    "crates/editors/editor-build",
+]
+
+[workspace.package]
+version     = "0.1.0"
+edition     = "2021"
+license     = "GPL-3.0-or-later"
+authors     = ["shifty81"]
+repository  = "https://github.com/shifty81/Workspace-Forge-Rust"
+
+[workspace.dependencies]
+# UI
+egui      = "0.31"
+eframe    = "0.31"
+egui_dock = "0.16"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+toml  = "0.8"
+
+# Async / futures
+futures = "0.3"
+
+# Error handling
+thiserror = "2"
+
+# Internal crates
+novaforge-ui      = { path = "crates/novaforge-ui" }
+novaforge-project = { path = "crates/novaforge-project" }
+novaforge-build   = { path = "crates/novaforge-build" }
+novaforge-ai      = { path = "crates/novaforge-ai" }
+
+# Editor panel crates
+editor-scene     = { path = "crates/editors/editor-scene" }
+editor-asset     = { path = "crates/editors/editor-asset" }
+editor-material  = { path = "crates/editors/editor-material" }
+editor-vlogic    = { path = "crates/editors/editor-vlogic" }
+editor-ui        = { path = "crates/editors/editor-ui" }
+editor-animation = { path = "crates/editors/editor-animation" }
+editor-data      = { path = "crates/editors/editor-data" }
+editor-build     = { path = "crates/editors/editor-build" }
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1

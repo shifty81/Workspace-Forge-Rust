@@ -1,0 +1,22 @@
+[package]
+name        = "editor-asset"
+description = "Asset Browser & Editor panel for NovaForge Workspace"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+authors.workspace    = true
+repository.workspace = true
+
+[features]
+standalone = ["eframe"]
+
+[dependencies]
+egui              = { workspace = true }
+novaforge-ui      = { workspace = true }
+novaforge-project = { workspace = true }
+eframe            = { workspace = true, optional = true }
+
+[[bin]]
+name              = "editor-asset"
+path              = "src/main.rs"
+required-features = ["standalone"]

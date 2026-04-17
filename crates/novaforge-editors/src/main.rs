@@ -1,0 +1,628 @@
+//! NovaForge Workspace — master editor application.
+//!
+//! Opens a dockable multi-panel editor suite.  All ten tool panels are hosted
+//! in a single window using [`egui_dock`].  Every panel can be detached and
+//! re-docked interactively.
+//!
+//! Run with: `cargo run -p novaforge-editors`
+
+use eframe::egui;
+use egui_dock::{DockArea, DockState, NodeIndex, TabViewer};
+use novaforge_ai::{StubAI, WorkspaceAI};
+use novaforge_project::{WorkspaceManifest, MANIFEST_FILE};
+
+// Editor panel imports
+use editor_animation::AnimationEditor;
+use editor_asset::AssetEditor;
+use editor_build::BuildToolPanel;
+use editor_data::DataEditor;
+use editor_material::MaterialEditor;
+use editor_scene::SceneEditor;
+use editor_ui::UiEditorPanel;
+use editor_vlogic::VLogicEditor;
+
+use novaforge_ui::{EditorPanel, PanelContext};
+use std::path::PathBuf;
+
+fn main() -> eframe::Result<()> {
+    eframe::run_native(
+        "NovaForge Workspace — Editor Suite",
+        eframe::NativeOptions {
+            viewport: egui::ViewportBuilder::default()
+                .with_inner_size([1600.0, 960.0])
+                .with_title("NovaForge Workspace — Editor Suite"),
+            ..Default::default()
+        },
+        Box::new(|_cc| Ok(Box::new(EditorApp::new()))),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Tab identifier
+// ---------------------------------------------------------------------------
+
+/// Identifies each dockable panel.
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub enum Tab {
+    WorkspaceBrowser,
+    Scene,
+    Asset,
+    Material,
+    VLogic,
+    Ui,
+    Animation,
+    Data,
+    Build,
+    AiTool,
+}
+
+impl Tab {
+    fn label(&self) -> &str {
+        match self {
+            Tab::WorkspaceBrowser => "📁 Workspace",
+            Tab::Scene => "🌐 Scene",
+            Tab::Asset => "🖼 Assets",
+            Tab::Material => "🎨 Material",
+            Tab::VLogic => "🔗 V-Logic",
+            Tab::Ui => "📐 UI",
+            Tab::Animation => "🎬 Animation",
+            Tab::Data => "📋 Data",
+            Tab::Build => "🔨 Build",
+            Tab::AiTool => "🤖 AI Tool",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// All panels, owned together
+// ---------------------------------------------------------------------------
+
+struct Panels {
+    workspace_browser: WorkspaceBrowser,
+    scene: SceneEditor,
+    asset: AssetEditor,
+    material: MaterialEditor,
+    vlogic: VLogicEditor,
+    ui_editor: UiEditorPanel,
+    animation: AnimationEditor,
+    data: DataEditor,
+    build: BuildToolPanel,
+    ai_tool: AiToolPanel,
+}
+
+impl Panels {
+    fn new() -> Self {
+        Self {
+            workspace_browser: WorkspaceBrowser::default(),
+            scene: SceneEditor::new(),
+            asset: AssetEditor::new(),
+            material: MaterialEditor::default(),
+            vlogic: VLogicEditor::default(),
+            ui_editor: UiEditorPanel::default(),
+            animation: AnimationEditor::default(),
+            data: DataEditor::default(),
+            build: BuildToolPanel::default(),
+            ai_tool: AiToolPanel::new(),
+        }
+    }
+
+    fn background_update_all(&mut self) {
+        self.animation.background_update();
+        self.build.background_update();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tab viewer (delegates to the correct panel)
+// ---------------------------------------------------------------------------
+
+struct EditorTabViewer<'a> {
+    panels: &'a mut Panels,
+    ctx: &'a PanelContext,
+}
+
+impl TabViewer for EditorTabViewer<'_> {
+    type Tab = Tab;
+
+    fn title(&mut self, tab: &mut Tab) -> egui::WidgetText {
+        tab.label().into()
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Tab) {
+        let ctx = self.ctx;
+        let p = &mut self.panels;
+        match tab {
+            Tab::WorkspaceBrowser => p.workspace_browser.ui(ui, ctx),
+            Tab::Scene => p.scene.ui(ui, ctx),
+            Tab::Asset => p.asset.ui(ui, ctx),
+            Tab::Material => p.material.ui(ui, ctx),
+            Tab::VLogic => p.vlogic.ui(ui, ctx),
+            Tab::Ui => p.ui_editor.ui(ui, ctx),
+            Tab::Animation => p.animation.ui(ui, ctx),
+            Tab::Data => p.data.ui(ui, ctx),
+            Tab::Build => p.build.ui(ui, ctx),
+            Tab::AiTool => p.ai_tool.ui(ui, ctx),
+        }
+    }
+
+    fn closeable(&mut self, _tab: &mut Tab) -> bool {
+        // Panels can be closed (toggled back from the View menu).
+        true
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Master editor app
+// ---------------------------------------------------------------------------
+
+struct EditorApp {
+    dock_state: DockState<Tab>,
+    panels: Panels,
+    project: Option<WorkspaceManifest>,
+    project_path_input: String,
+    panel_ctx: PanelContext,
+    status: String,
+}
+
+impl EditorApp {
+    fn new() -> Self {
+        // Build the initial docking layout:
+        //   left sidebar: Workspace Browser
+        //   centre (main):  Scene | Asset | Material | V-Logic | UI | Animation | Data
+        //   bottom strip:   Build  |  AI Tool
+        let mut dock_state = DockState::new(vec![Tab::Scene]);
+
+        let [centre, _left] = dock_state.main_surface_mut().split_left(
+            NodeIndex::root(),
+            0.18,
+            vec![Tab::WorkspaceBrowser],
+        );
+
+        let [_centre, _bottom] =
+            dock_state
+                .main_surface_mut()
+                .split_below(centre, 0.72, vec![Tab::Build, Tab::AiTool]);
+
+        // Add the remaining panels as tabs in the centre area.
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::Asset);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::Material);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::VLogic);
+        dock_state.main_surface_mut().push_to_focused_leaf(Tab::Ui);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::Animation);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::Data);
+
+        Self {
+            dock_state,
+            panels: Panels::new(),
+            project: None,
+            project_path_input: String::new(),
+            panel_ctx: PanelContext::default(),
+            status: "No project loaded.".to_string(),
+        }
+    }
+
+    fn all_tabs() -> &'static [Tab] {
+        &[
+            Tab::WorkspaceBrowser,
+            Tab::Scene,
+            Tab::Asset,
+            Tab::Material,
+            Tab::VLogic,
+            Tab::Ui,
+            Tab::Animation,
+            Tab::Data,
+            Tab::Build,
+            Tab::AiTool,
+        ]
+    }
+
+    fn toggle_tab(&mut self, tab: Tab) {
+        if let Some(index) = self.dock_state.find_tab(&tab) {
+            self.dock_state.remove_tab(index);
+        } else {
+            self.dock_state.push_to_focused_leaf(tab);
+        }
+    }
+
+    fn ensure_tab_open(&mut self, tab: Tab) {
+        if self.dock_state.find_tab(&tab).is_none() {
+            self.dock_state.push_to_focused_leaf(tab);
+        }
+    }
+
+    fn load_project(&mut self) {
+        use std::path::Path;
+        let path_str = self.project_path_input.trim().to_string();
+        if path_str.is_empty() {
+            self.status = "Please enter a project path.".to_string();
+            return;
+        }
+        match WorkspaceManifest::load(Path::new(&path_str)) {
+            Ok(manifest) => {
+                self.panel_ctx = PanelContext {
+                    project_name: Some(manifest.project_name.clone()),
+                    nova_forge_path: Some(manifest.nova_forge_path.clone()),
+                    asset_root: Some(manifest.asset_root.clone()),
+                };
+                self.status = format!("Project: {}", manifest.project_name);
+                self.panels
+                    .workspace_browser
+                    .set_root(manifest.asset_root.clone());
+                self.project = Some(manifest);
+            }
+            Err(e) => {
+                self.status = format!("Error: {e}");
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Menu bar
+    // -----------------------------------------------------------------------
+
+    fn show_menu_bar(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Project:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.project_path_input)
+                                .hint_text(format!("Path to {MANIFEST_FILE}"))
+                                .desired_width(260.0),
+                        );
+                        if ui.button("Open").clicked() {
+                            self.load_project();
+                            ui.close_menu();
+                        }
+                    });
+                    ui.separator();
+                    if ui.button("Save Project").clicked() {
+                        if let Some(ref m) = self.project {
+                            let path = PathBuf::from(&self.project_path_input);
+                            match m.save(&path) {
+                                Ok(()) => self.status = "Project saved.".to_string(),
+                                Err(e) => self.status = format!("Save error: {e}"),
+                            }
+                        }
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Exit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+
+                ui.menu_button("View", |ui| {
+                    ui.label(egui::RichText::new("Toggle panels").weak());
+                    ui.separator();
+                    for tab in Self::all_tabs() {
+                        let visible = self.dock_state.find_tab(tab).is_some();
+                        let mut v = visible;
+                        if ui.checkbox(&mut v, tab.label()).changed() {
+                            self.toggle_tab(tab.clone());
+                        }
+                    }
+                    ui.separator();
+                    if ui.button("Reset Layout").clicked() {
+                        *self = EditorApp::new();
+                        ui.close_menu();
+                    }
+                });
+
+                ui.menu_button("Build", |ui| {
+                    if ui.button("🔨 Build (debug)").clicked() {
+                        self.ensure_tab_open(Tab::Build);
+                        ui.close_menu();
+                    }
+                    if ui.button("🚀 Build (release)").clicked() {
+                        self.ensure_tab_open(Tab::Build);
+                        ui.close_menu();
+                    }
+                });
+
+                ui.menu_button("AI", |ui| {
+                    ui.label("AI provider: Offline (stub)");
+                    ui.separator();
+                    if ui.button("Open AI Tool").clicked() {
+                        self.ensure_tab_open(Tab::AiTool);
+                        ui.close_menu();
+                    }
+                });
+
+                ui.menu_button("Help", |ui| {
+                    ui.hyperlink_to(
+                        "NovaForge Workspace on GitHub",
+                        "https://github.com/shifty81/Workspace-Forge-Rust",
+                    );
+                    ui.hyperlink_to(
+                        "Nova-Forge on GitHub",
+                        "https://github.com/shifty81/Nova-Forge",
+                    );
+                });
+            });
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Status bar
+    // -----------------------------------------------------------------------
+
+    fn show_status_bar(&self, ctx: &egui::Context) {
+        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(format!(
+                    "Project: {}",
+                    self.panel_ctx.project_name.as_deref().unwrap_or("None")
+                ));
+                ui.separator();
+                ui.label(&self.status);
+                ui.separator();
+                ui.label("AI: Offline (stub)");
+            });
+        });
+    }
+}
+
+impl eframe::App for EditorApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Background updates (build log polling, animation playhead)
+        self.panels.background_update_all();
+
+        self.show_menu_bar(ctx);
+        self.show_status_bar(ctx);
+
+        // Dock area fills the remaining space
+        DockArea::new(&mut self.dock_state).show(
+            ctx,
+            &mut EditorTabViewer {
+                panels: &mut self.panels,
+                ctx: &self.panel_ctx,
+            },
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Workspace Browser (defined here, not a separate crate)
+// ---------------------------------------------------------------------------
+
+#[derive(Default)]
+struct WorkspaceBrowser {
+    root: Option<PathBuf>,
+    entries: Vec<BrowserEntry>,
+    filter: String,
+    selected: Option<usize>,
+}
+
+#[derive(Clone)]
+struct BrowserEntry {
+    display: String,
+    is_dir: bool,
+    depth: usize,
+}
+
+impl WorkspaceBrowser {
+    fn set_root(&mut self, root: PathBuf) {
+        self.root = Some(root.clone());
+        self.entries = scan_dir(&root, 0);
+    }
+}
+
+fn scan_dir(path: &PathBuf, depth: usize) -> Vec<BrowserEntry> {
+    let mut entries = Vec::new();
+    if depth > 4 {
+        return entries;
+    }
+    let Ok(read) = std::fs::read_dir(path) else {
+        return entries;
+    };
+    let mut items: Vec<std::fs::DirEntry> = read.flatten().collect();
+    items.sort_by_key(|e| (!e.path().is_dir(), e.file_name()));
+    for item in items {
+        let p = item.path();
+        let name = item.file_name().to_string_lossy().to_string();
+        let is_dir = p.is_dir();
+        entries.push(BrowserEntry {
+            display: name.clone(),
+            is_dir,
+            depth,
+        });
+        if is_dir {
+            entries.extend(scan_dir(&p, depth + 1));
+        }
+    }
+    entries
+}
+
+impl EditorPanel for WorkspaceBrowser {
+    fn title(&self) -> &str {
+        "Workspace"
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &PanelContext) {
+        ui.horizontal(|ui| {
+            ui.label("🔍");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.filter)
+                    .hint_text("Filter…")
+                    .desired_width(f32::INFINITY),
+            );
+        });
+
+        if let Some(ref root) = self.root {
+            ui.label(
+                egui::RichText::new(root.display().to_string())
+                    .size(10.0)
+                    .color(egui::Color32::from_rgb(120, 120, 140)),
+            );
+        } else if let Some(ref root) = ctx.asset_root {
+            // Auto-populate from project context if not yet set.
+            let root = root.clone();
+            self.set_root(root);
+        }
+
+        ui.separator();
+
+        let filter_lower = self.filter.to_lowercase();
+
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            let mut new_selected = self.selected;
+            for (i, entry) in self.entries.iter().enumerate() {
+                if !filter_lower.is_empty() && !entry.display.to_lowercase().contains(&filter_lower)
+                {
+                    continue;
+                }
+                let indent = entry.depth as f32 * 12.0;
+                ui.horizontal(|ui| {
+                    ui.add_space(indent);
+                    let icon = if entry.is_dir { "📁" } else { "📄" };
+                    let label = format!("{icon} {}", entry.display);
+                    let selected = self.selected == Some(i);
+                    if ui.selectable_label(selected, label).clicked() {
+                        new_selected = Some(i);
+                    }
+                });
+            }
+            self.selected = new_selected;
+
+            if self.entries.is_empty() && self.root.is_some() {
+                ui.label(
+                    egui::RichText::new("Directory is empty or inaccessible.")
+                        .italics()
+                        .color(egui::Color32::from_rgb(120, 120, 140)),
+                );
+            } else if self.root.is_none() {
+                ui.label(
+                    egui::RichText::new("Open a project to browse its files.")
+                        .italics()
+                        .color(egui::Color32::from_rgb(120, 120, 140)),
+                );
+            }
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AI Tool panel (defined here, not a separate crate)
+// ---------------------------------------------------------------------------
+
+struct AiToolPanel {
+    ai: Box<dyn WorkspaceAI>,
+    input: String,
+    history: Vec<(Role, String)>,
+}
+
+#[derive(Clone, Copy)]
+enum Role {
+    User,
+    Assistant,
+}
+
+impl AiToolPanel {
+    fn new() -> Self {
+        Self {
+            ai: Box::new(StubAI),
+            input: String::new(),
+            history: vec![(
+                Role::Assistant,
+                "NovaForge AI is offline (stub). Configure a provider to enable AI features."
+                    .to_string(),
+            )],
+        }
+    }
+
+    fn submit(&mut self) {
+        let prompt = self.input.trim().to_string();
+        if prompt.is_empty() {
+            return;
+        }
+        self.history.push((Role::User, prompt.clone()));
+        self.input.clear();
+
+        // The stub returns immediately, so we can block.
+        let response = futures::executor::block_on(self.ai.query(&prompt));
+        self.history.push((Role::Assistant, response));
+    }
+}
+
+impl EditorPanel for AiToolPanel {
+    fn title(&self) -> &str {
+        "AI Tool"
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &PanelContext) {
+        // Status badge
+        ui.horizontal(|ui| {
+            let (colour, label) = if self.ai.is_available() {
+                (egui::Color32::from_rgb(80, 200, 80), "● Online")
+            } else {
+                (egui::Color32::from_rgb(200, 80, 80), "● Offline")
+            };
+            ui.label(egui::RichText::new(label).color(colour));
+            ui.label(format!("Provider: {}", self.ai.provider_name()));
+        });
+
+        ui.separator();
+
+        // Chat history
+        let history_height = ui.available_height() - 48.0;
+        egui::ScrollArea::vertical()
+            .max_height(history_height.max(40.0))
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                for (role, msg) in &self.history {
+                    match role {
+                        Role::User => {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("You: ")
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(140, 180, 240)),
+                                );
+                                ui.label(msg);
+                            });
+                        }
+                        Role::Assistant => {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new("AI: ")
+                                        .strong()
+                                        .color(egui::Color32::from_rgb(180, 220, 160)),
+                                );
+                                ui.label(msg);
+                            });
+                        }
+                    }
+                    ui.add_space(2.0);
+                }
+            });
+
+        ui.separator();
+
+        // Input row
+        ui.horizontal(|ui| {
+            let input_widget = ui.add(
+                egui::TextEdit::singleline(&mut self.input)
+                    .hint_text("Ask the AI…")
+                    .desired_width(f32::INFINITY),
+            );
+            let send = ui.button("Send");
+            if send.clicked()
+                || (input_widget.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+            {
+                self.submit();
+            }
+        });
+    }
+}
