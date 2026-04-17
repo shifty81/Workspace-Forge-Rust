@@ -1,0 +1,30 @@
+[package]
+name        = "novaforge-editors"
+description = "NovaForge Workspace — master editor application"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+authors.workspace    = true
+repository.workspace = true
+
+[[bin]]
+name = "novaforge-editors"
+path = "src/main.rs"
+
+[dependencies]
+egui              = { workspace = true }
+eframe            = { workspace = true }
+egui_dock         = { workspace = true }
+futures           = { workspace = true }
+novaforge-ui      = { workspace = true }
+novaforge-project = { workspace = true }
+novaforge-build   = { workspace = true }
+novaforge-ai      = { workspace = true }
+editor-scene      = { workspace = true }
+editor-asset      = { workspace = true }
+editor-material   = { workspace = true }
+editor-vlogic     = { workspace = true }
+editor-ui         = { workspace = true }
+editor-animation  = { workspace = true }
+editor-data       = { workspace = true }
+editor-build      = { workspace = true }

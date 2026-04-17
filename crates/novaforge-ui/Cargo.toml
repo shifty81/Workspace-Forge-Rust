@@ -1,0 +1,11 @@
+[package]
+name        = "novaforge-ui"
+description = "Shared UI primitives and EditorPanel trait for NovaForge Workspace"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+authors.workspace    = true
+repository.workspace = true
+
+[dependencies]
+egui = { workspace = true }
