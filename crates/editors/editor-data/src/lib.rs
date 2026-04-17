@@ -6,6 +6,7 @@
 
 use novaforge_ui::{EditorPanel, PanelContext};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// A single row in the data table.
 #[derive(Clone, Serialize, Deserialize)]
@@ -25,6 +26,8 @@ pub struct DataEditor {
     edit_buf: DataRow,
     /// Status message shown below the toolbar.
     save_status: String,
+    /// Path from which data was last loaded / saved.
+    last_path: Option<PathBuf>,
 }
 
 impl Default for DataEditor {
@@ -71,18 +74,58 @@ impl Default for DataEditor {
             filter: String::new(),
             edit_buf: placeholder,
             save_status: String::new(),
+            last_path: None,
         }
     }
 }
 
 impl DataEditor {
+    /// Derive the canonical save/load path from the project context.
+    fn toml_path(ctx: &PanelContext) -> Option<PathBuf> {
+        ctx.asset_root
+            .as_ref()
+            .map(|r| r.join("data").join("data_table.toml"))
+    }
+
+    /// Load rows from `<asset_root>/data/data_table.toml`, replacing any
+    /// existing rows.  Reports errors via `save_status`.
+    fn load_from_toml(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::toml_path(ctx) else {
+            self.save_status = "No project loaded — cannot determine load path.".to_string();
+            return;
+        };
+
+        match std::fs::read_to_string(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.save_status = format!("File not found: {}", path.display());
+            }
+            Err(e) => {
+                self.save_status = format!("Read error: {e}");
+            }
+            Ok(content) => {
+                #[derive(Deserialize)]
+                struct TableFile {
+                    rows: Vec<DataRow>,
+                }
+                match toml::from_str::<TableFile>(&content) {
+                    Ok(table) => {
+                        self.rows = table.rows;
+                        self.selected_row = None;
+                        self.last_path = Some(path.clone());
+                        self.save_status = format!("Loaded {} rows ← {}", self.rows.len(), path.display());
+                    }
+                    Err(e) => {
+                        self.save_status = format!("Parse error: {e}");
+                    }
+                }
+            }
+        }
+    }
+
     /// Serialise all rows to TOML and write to `path`.
     fn save_to_toml(&mut self, ctx: &PanelContext) {
         // Derive save path from the asset root: <asset_root>/data/data_table.toml
-        let save_path = ctx
-            .asset_root
-            .as_ref()
-            .map(|r| r.join("data").join("data_table.toml"));
+        let save_path = Self::toml_path(ctx);
 
         let Some(path) = save_path else {
             self.save_status = "No project loaded — cannot determine save path.".to_string();
@@ -105,6 +148,7 @@ impl DataEditor {
         match toml::to_string_pretty(&TableFile { rows: &self.rows }) {
             Ok(content) => match std::fs::write(&path, content) {
                 Ok(()) => {
+                    self.last_path = Some(path.clone());
                     self.save_status = format!("Saved → {}", path.display());
                 }
                 Err(e) => {
@@ -152,6 +196,9 @@ impl EditorPanel for DataEditor {
             }
             if ui.button("💾 Save").clicked() {
                 self.save_to_toml(ctx);
+            }
+            if ui.button("📂 Load").clicked() {
+                self.load_from_toml(ctx);
             }
         });
 

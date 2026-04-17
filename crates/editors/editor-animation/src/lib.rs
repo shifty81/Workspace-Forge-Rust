@@ -5,7 +5,6 @@ use novaforge_ui::{EditorPanel, PanelContext};
 
 /// A single keyframe on the timeline.
 #[derive(Clone)]
-#[allow(dead_code)]
 struct Keyframe {
     time: f32,
     label: String,
@@ -21,10 +20,16 @@ struct Track {
 /// Animation Editor panel.
 pub struct AnimationEditor {
     tracks: Vec<Track>,
+    /// Index of the currently selected track (for adding/deleting keyframes).
+    selected_track: Option<usize>,
+    /// Index within `selected_track` of the selected keyframe.
+    selected_keyframe: Option<usize>,
     playhead: f32,
     duration: f32,
     playing: bool,
     zoom: f32,
+    /// Monotonically increasing counter used to generate unique keyframe labels.
+    keyframe_counter: u32,
 }
 
 impl Default for AnimationEditor {
@@ -34,45 +39,30 @@ impl Default for AnimationEditor {
                 Track {
                     name: "Root Bone".to_string(),
                     keyframes: vec![
-                        Keyframe {
-                            time: 0.0,
-                            label: "A".to_string(),
-                        },
-                        Keyframe {
-                            time: 0.5,
-                            label: "B".to_string(),
-                        },
-                        Keyframe {
-                            time: 1.0,
-                            label: "C".to_string(),
-                        },
+                        Keyframe { time: 0.0, label: "A".to_string() },
+                        Keyframe { time: 0.5, label: "B".to_string() },
+                        Keyframe { time: 1.0, label: "C".to_string() },
                     ],
                 },
                 Track {
                     name: "Weapon".to_string(),
                     keyframes: vec![
-                        Keyframe {
-                            time: 0.2,
-                            label: "A".to_string(),
-                        },
-                        Keyframe {
-                            time: 0.8,
-                            label: "B".to_string(),
-                        },
+                        Keyframe { time: 0.2, label: "A".to_string() },
+                        Keyframe { time: 0.8, label: "B".to_string() },
                     ],
                 },
                 Track {
                     name: "FX".to_string(),
-                    keyframes: vec![Keyframe {
-                        time: 0.6,
-                        label: "A".to_string(),
-                    }],
+                    keyframes: vec![Keyframe { time: 0.6, label: "A".to_string() }],
                 },
             ],
+            selected_track: None,
+            selected_keyframe: None,
             playhead: 0.0,
             duration: 2.0,
             playing: false,
             zoom: 1.0,
+            keyframe_counter: 6, // 3 tracks × ~2 keyframes already in the defaults
         }
     }
 }
@@ -98,11 +88,7 @@ impl EditorPanel for AnimationEditor {
             if ui.button("⏮ Start").clicked() {
                 self.playhead = 0.0;
             }
-            let play_label = if self.playing {
-                "⏸ Pause"
-            } else {
-                "▶ Play"
-            };
+            let play_label = if self.playing { "⏸ Pause" } else { "▶ Play" };
             if ui.button(play_label).clicked() {
                 self.playing = !self.playing;
             }
@@ -111,10 +97,7 @@ impl EditorPanel for AnimationEditor {
                 self.playhead = 0.0;
             }
             ui.separator();
-            ui.label(format!(
-                "Time: {:.2} / {:.2} s",
-                self.playhead, self.duration
-            ));
+            ui.label(format!("Time: {:.2} / {:.2} s", self.playhead, self.duration));
             ui.separator();
             ui.label("Zoom:");
             if ui.button("＋").clicked() {
@@ -123,7 +106,68 @@ impl EditorPanel for AnimationEditor {
             if ui.button("−").clicked() {
                 self.zoom = (self.zoom / 1.2).max(0.25);
             }
+            ui.separator();
+            // Keyframe edit controls (require a selected track)
+            let track_sel = self.selected_track.is_some();
+            let kf_sel = self.selected_keyframe.is_some();
+            if ui
+                .add_enabled(track_sel, egui::Button::new("＋ Keyframe"))
+                .on_hover_text("Add keyframe at playhead on selected track")
+                .clicked()
+            {
+                if let Some(ti) = self.selected_track {
+                    if let Some(track) = self.tracks.get_mut(ti) {
+                        let t = self.playhead;
+                        // Avoid duplicate keyframe at same time (within 1 ms).
+                        if !track.keyframes.iter().any(|k| (k.time - t).abs() < 0.001) {
+                            self.keyframe_counter += 1;
+                            let label =
+                                (b'A' + (self.keyframe_counter % 26) as u8) as char;
+                            track.keyframes.push(Keyframe {
+                                time: t,
+                                label: label.to_string(),
+                            });
+                            track
+                                .keyframes
+                                .sort_by(|a, b| a.time.total_cmp(&b.time));
+                            self.selected_keyframe = track
+                                .keyframes
+                                .iter()
+                                .position(|k| (k.time - t).abs() < 0.001);
+                        }
+                    }
+                }
+            }
+            if ui
+                .add_enabled(track_sel && kf_sel, egui::Button::new("🗑 Keyframe"))
+                .on_hover_text("Delete selected keyframe")
+                .clicked()
+            {
+                if let (Some(ti), Some(ki)) = (self.selected_track, self.selected_keyframe) {
+                    if let Some(track) = self.tracks.get_mut(ti) {
+                        if ki < track.keyframes.len() {
+                            track.keyframes.remove(ki);
+                            self.selected_keyframe = None;
+                        }
+                    }
+                }
+            }
         });
+
+        // Track info hint
+        if let Some(ti) = self.selected_track {
+            if let Some(track) = self.tracks.get(ti) {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Track: {}  ({} keyframes)",
+                        track.name,
+                        track.keyframes.len()
+                    ))
+                    .size(11.0)
+                    .color(Color32::from_rgb(140, 180, 240)),
+                );
+            }
+        }
 
         ui.separator();
 
@@ -153,13 +197,7 @@ impl EditorPanel for AnimationEditor {
             painter.rect_filled(ruler_rect, 0.0, Color32::from_rgb(35, 35, 44));
 
             let px_per_sec = timeline_w / self.duration * self.zoom;
-            let tick_step = if self.zoom > 2.0 {
-                0.1
-            } else if self.zoom > 0.5 {
-                0.5
-            } else {
-                1.0
-            };
+            let tick_step = if self.zoom > 2.0 { 0.1 } else if self.zoom > 0.5 { 0.5 } else { 1.0 };
             let mut t = 0.0_f32;
             while t <= self.duration {
                 let x = ruler_rect.left() + t * px_per_sec;
@@ -167,10 +205,7 @@ impl EditorPanel for AnimationEditor {
                     break;
                 }
                 painter.line_segment(
-                    [
-                        egui::pos2(x, ruler_rect.top()),
-                        egui::pos2(x, ruler_rect.bottom()),
-                    ],
+                    [egui::pos2(x, ruler_rect.top()), egui::pos2(x, ruler_rect.bottom())],
                     egui::Stroke::new(1.0, Color32::from_rgb(80, 80, 100)),
                 );
                 painter.text(
@@ -184,44 +219,89 @@ impl EditorPanel for AnimationEditor {
             }
 
             // Tracks
+            let mut new_selected_track = self.selected_track;
+            let mut new_selected_kf = self.selected_keyframe;
+
             for (row, track) in self.tracks.iter().enumerate() {
                 let y_top = rect.top() + (row as f32 + 1.0) * row_h;
                 let track_rect = egui::Rect::from_min_size(
                     egui::pos2(rect.left(), y_top),
                     egui::vec2(label_w + timeline_w, row_h),
                 );
-                let bg = if row % 2 == 0 {
+                let track_selected = self.selected_track == Some(row);
+                let bg = if track_selected {
+                    Color32::from_rgb(40, 40, 60)
+                } else if row % 2 == 0 {
                     Color32::from_rgb(28, 28, 36)
                 } else {
                     Color32::from_rgb(32, 32, 40)
                 };
                 painter.rect_filled(track_rect, 0.0, bg);
+
+                // Track label — click to select the track
+                let label_rect = egui::Rect::from_min_size(
+                    egui::pos2(rect.left(), y_top),
+                    egui::vec2(label_w, row_h),
+                );
+                let label_response = ui.interact(label_rect, ui.id().with(("track_label", row)), egui::Sense::click());
+                if label_response.clicked() {
+                    new_selected_track = Some(row);
+                    new_selected_kf = None;
+                }
                 painter.text(
                     egui::pos2(rect.left() + 4.0, y_top + row_h * 0.5),
                     egui::Align2::LEFT_CENTER,
                     &track.name,
                     egui::FontId::proportional(11.0),
-                    Color32::from_rgb(200, 200, 220),
+                    if track_selected {
+                        Color32::from_rgb(220, 220, 255)
+                    } else {
+                        Color32::from_rgb(200, 200, 220)
+                    },
                 );
 
                 // Keyframes
-                for kf in &track.keyframes {
+                for (ki, kf) in track.keyframes.iter().enumerate() {
                     let kx = ruler_rect.left() + kf.time * px_per_sec;
                     if kx < ruler_rect.left() || kx > ruler_rect.right() {
                         continue;
                     }
                     let ky = y_top + row_h * 0.5;
-                    let kf_rect =
-                        egui::Rect::from_center_size(egui::pos2(kx, ky), egui::vec2(10.0, 10.0));
-                    painter.rect_filled(kf_rect, 2.0, Color32::from_rgb(220, 180, 60));
+                    let kf_rect = egui::Rect::from_center_size(egui::pos2(kx, ky), egui::vec2(10.0, 10.0));
+                    let kf_selected = self.selected_track == Some(row) && self.selected_keyframe == Some(ki);
+                    let kf_color = if kf_selected {
+                        Color32::from_rgb(255, 220, 60)
+                    } else {
+                        Color32::from_rgb(200, 160, 40)
+                    };
+                    painter.rect_filled(kf_rect, 2.0, kf_color);
                     painter.rect_stroke(
                         kf_rect,
                         2.0,
-                        egui::Stroke::new(1.0, Color32::WHITE),
+                        egui::Stroke::new(if kf_selected { 2.0 } else { 1.0 }, Color32::WHITE),
                         egui::StrokeKind::Middle,
                     );
+                    // Draw the keyframe label (first character) inside the diamond.
+                    if let Some(ch) = kf.label.chars().next() {
+                        painter.text(
+                            egui::pos2(kx, y_top + row_h * 0.5),
+                            egui::Align2::CENTER_CENTER,
+                            ch.to_string(),
+                            egui::FontId::proportional(7.0),
+                            Color32::from_rgb(30, 20, 0),
+                        );
+                    }
+                    // Click on keyframe to select it (and its track)
+                    let kf_response = ui.interact(kf_rect, ui.id().with(("kf", row, ki)), egui::Sense::click());
+                    if kf_response.clicked() {
+                        new_selected_track = Some(row);
+                        new_selected_kf = Some(ki);
+                    }
                 }
             }
+
+            self.selected_track = new_selected_track;
+            self.selected_keyframe = new_selected_kf;
 
             // Playhead
             let phx = ruler_rect.left() + self.playhead * px_per_sec;
@@ -232,11 +312,14 @@ impl EditorPanel for AnimationEditor {
                 );
             }
 
-            // Click to scrub
+            // Click on ruler/timeline background to scrub playhead
             if response.clicked() {
                 if let Some(pos) = response.interact_pointer_pos() {
-                    let rel_x = pos.x - ruler_rect.left();
-                    self.playhead = (rel_x / px_per_sec).clamp(0.0, self.duration);
+                    if pos.y < rect.top() + row_h {
+                        // Clicked in the ruler row → scrub
+                        let rel_x = pos.x - ruler_rect.left();
+                        self.playhead = (rel_x / px_per_sec).clamp(0.0, self.duration);
+                    }
                 }
             }
         });
