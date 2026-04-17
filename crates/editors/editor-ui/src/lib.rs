@@ -3,12 +3,48 @@
 use egui::Color32;
 use novaforge_ui::{EditorPanel, PanelContext};
 
+/// Kind of UI widget on the design canvas.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum WidgetKind {
+    #[default]
+    Panel,
+    Label,
+    Button,
+}
+
+impl WidgetKind {
+    fn label(self) -> &'static str {
+        match self {
+            WidgetKind::Panel => "Panel",
+            WidgetKind::Label => "Label",
+            WidgetKind::Button => "Button",
+        }
+    }
+
+    fn default_size(self) -> egui::Vec2 {
+        match self {
+            WidgetKind::Panel => egui::vec2(120.0, 60.0),
+            WidgetKind::Label => egui::vec2(100.0, 20.0),
+            WidgetKind::Button => egui::vec2(90.0, 28.0),
+        }
+    }
+
+    fn fill_color(self) -> egui::Color32 {
+        match self {
+            WidgetKind::Panel => egui::Color32::from_rgb(45, 55, 75),
+            WidgetKind::Label => egui::Color32::from_rgb(40, 60, 50),
+            WidgetKind::Button => egui::Color32::from_rgb(60, 50, 80),
+        }
+    }
+}
+
 /// A widget placed on the design canvas.
 #[derive(Clone)]
-#[allow(dead_code)]
 struct UiWidget {
     label: String,
+    kind: WidgetKind,
     rect: egui::Rect,
+    #[allow(dead_code)]
     selected: bool,
 }
 
@@ -31,6 +67,7 @@ impl Default for UiEditorPanel {
             widgets: vec![
                 UiWidget {
                     label: "HUD Panel".to_string(),
+                    kind: WidgetKind::Panel,
                     rect: egui::Rect::from_min_size(
                         egui::pos2(40.0, 40.0),
                         egui::vec2(160.0, 80.0),
@@ -39,6 +76,7 @@ impl Default for UiEditorPanel {
                 },
                 UiWidget {
                     label: "Health Bar".to_string(),
+                    kind: WidgetKind::Label,
                     rect: egui::Rect::from_min_size(
                         egui::pos2(60.0, 60.0),
                         egui::vec2(120.0, 20.0),
@@ -47,6 +85,7 @@ impl Default for UiEditorPanel {
                 },
                 UiWidget {
                     label: "Minimap".to_string(),
+                    kind: WidgetKind::Panel,
                     rect: egui::Rect::from_min_size(
                         egui::pos2(240.0, 30.0),
                         egui::vec2(80.0, 80.0),
@@ -70,18 +109,41 @@ impl EditorPanel for UiEditorPanel {
     fn ui(&mut self, ui: &mut egui::Ui, _ctx: &PanelContext) {
         ui.horizontal(|ui| {
             if ui.button("＋ Panel").clicked() {
+                let kind = WidgetKind::Panel;
                 self.widgets.push(UiWidget {
-                    label: format!("Widget {}", self.widgets.len() + 1),
+                    label: format!("Panel {}", self.widgets.len() + 1),
+                    kind,
                     rect: egui::Rect::from_min_size(
                         egui::pos2(20.0 + self.widgets.len() as f32 * 10.0, 20.0),
-                        egui::vec2(100.0, 40.0),
+                        kind.default_size(),
                     ),
                     selected: false,
                 });
             }
-            // Additional widget type buttons — functionality wired in a later phase.
-            let _ = ui.button("＋ Label");
-            let _ = ui.button("＋ Button");
+            if ui.button("＋ Label").clicked() {
+                let kind = WidgetKind::Label;
+                self.widgets.push(UiWidget {
+                    label: format!("Label {}", self.widgets.len() + 1),
+                    kind,
+                    rect: egui::Rect::from_min_size(
+                        egui::pos2(20.0 + self.widgets.len() as f32 * 10.0, 60.0),
+                        kind.default_size(),
+                    ),
+                    selected: false,
+                });
+            }
+            if ui.button("＋ Button").clicked() {
+                let kind = WidgetKind::Button;
+                self.widgets.push(UiWidget {
+                    label: format!("Button {}", self.widgets.len() + 1),
+                    kind,
+                    rect: egui::Rect::from_min_size(
+                        egui::pos2(20.0 + self.widgets.len() as f32 * 10.0, 100.0),
+                        kind.default_size(),
+                    ),
+                    selected: false,
+                });
+            }
             ui.separator();
             ui.label(format!("{} widgets", self.widgets.len()));
         });
@@ -148,7 +210,7 @@ impl EditorPanel for UiEditorPanel {
             let fill = if is_dragged {
                 Color32::from_rgb(60, 90, 130)
             } else {
-                Color32::from_rgb(45, 55, 75)
+                widget.kind.fill_color()
             };
             painter.rect_filled(screen_rect, 4.0, fill);
             painter.rect_stroke(
@@ -157,10 +219,11 @@ impl EditorPanel for UiEditorPanel {
                 egui::Stroke::new(1.5, Color32::from_rgb(120, 140, 180)),
                 egui::StrokeKind::Middle,
             );
+            let display = format!("[{}] {}", widget.kind.label(), widget.label);
             painter.text(
                 screen_rect.center(),
                 egui::Align2::CENTER_CENTER,
-                &widget.label,
+                &display,
                 egui::FontId::proportional(11.0),
                 Color32::WHITE,
             );
