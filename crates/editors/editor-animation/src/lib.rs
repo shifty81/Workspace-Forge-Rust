@@ -2,19 +2,28 @@
 
 use egui::Color32;
 use novaforge_ui::{EditorPanel, PanelContext};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// A single keyframe on the timeline.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Keyframe {
     time: f32,
     label: String,
 }
 
 /// An animation track.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Track {
     name: String,
     keyframes: Vec<Keyframe>,
+}
+
+/// TOML-serialisable wrapper for the full animation clip.
+#[derive(Serialize, Deserialize)]
+struct AnimationFile {
+    duration: f32,
+    tracks: Vec<Track>,
 }
 
 /// Animation Editor panel.
@@ -30,6 +39,10 @@ pub struct AnimationEditor {
     zoom: f32,
     /// Monotonically increasing counter used to generate unique keyframe labels.
     keyframe_counter: u32,
+    /// Text buffer used for the inline "new track name" input.
+    new_track_name: String,
+    /// Status message shown below the toolbar (save/load feedback).
+    save_status: String,
 }
 
 impl Default for AnimationEditor {
@@ -63,6 +76,66 @@ impl Default for AnimationEditor {
             playing: false,
             zoom: 1.0,
             keyframe_counter: 6, // 3 tracks × ~2 keyframes already in the defaults
+            new_track_name: String::new(),
+            save_status: String::new(),
+        }
+    }
+}
+
+impl AnimationEditor {
+    /// Canonical path for the animation file: `<asset_root>/animations/animation.toml`.
+    fn anim_path(ctx: &PanelContext) -> Option<PathBuf> {
+        ctx.asset_root
+            .as_ref()
+            .map(|r| r.join("animations").join("animation.toml"))
+    }
+
+    fn save_animation(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::anim_path(ctx) else {
+            self.save_status = "No project loaded — cannot save animation.".to_string();
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                self.save_status = format!("Directory error: {e}");
+                return;
+            }
+        }
+        let file = AnimationFile {
+            duration: self.duration,
+            tracks: self.tracks.clone(),
+        };
+        match toml::to_string_pretty(&file) {
+            Ok(content) => match std::fs::write(&path, content) {
+                Ok(()) => self.save_status = format!("Saved → {}", path.display()),
+                Err(e) => self.save_status = format!("Write error: {e}"),
+            },
+            Err(e) => self.save_status = format!("Serialise error: {e}"),
+        }
+    }
+
+    fn load_animation(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::anim_path(ctx) else {
+            self.save_status = "No project loaded — cannot load animation.".to_string();
+            return;
+        };
+        match std::fs::read_to_string(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.save_status = format!("File not found: {}", path.display());
+            }
+            Err(e) => self.save_status = format!("Read error: {e}"),
+            Ok(content) => match toml::from_str::<AnimationFile>(&content) {
+                Ok(file) => {
+                    let n = file.tracks.len();
+                    self.duration = file.duration;
+                    self.tracks = file.tracks;
+                    self.selected_track = None;
+                    self.selected_keyframe = None;
+                    self.playhead = 0.0;
+                    self.save_status = format!("Loaded {n} tracks ← {}", path.display());
+                }
+                Err(e) => self.save_status = format!("Parse error: {e}"),
+            },
         }
     }
 }
@@ -82,7 +155,7 @@ impl EditorPanel for AnimationEditor {
         }
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &PanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &PanelContext) {
         // Transport bar
         ui.horizontal(|ui| {
             if ui.button("⏮ Start").clicked() {
@@ -106,10 +179,13 @@ impl EditorPanel for AnimationEditor {
             if ui.button("−").clicked() {
                 self.zoom = (self.zoom / 1.2).max(0.25);
             }
-            ui.separator();
-            // Keyframe edit controls (require a selected track)
+        });
+
+        // Keyframe & track controls
+        ui.horizontal(|ui| {
             let track_sel = self.selected_track.is_some();
             let kf_sel = self.selected_keyframe.is_some();
+
             if ui
                 .add_enabled(track_sel, egui::Button::new("＋ Keyframe"))
                 .on_hover_text("Add keyframe at playhead on selected track")
@@ -152,7 +228,79 @@ impl EditorPanel for AnimationEditor {
                     }
                 }
             }
+
+            ui.separator();
+
+            // Track management
+            ui.label("Track:");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.new_track_name)
+                    .hint_text("name…")
+                    .desired_width(90.0),
+            );
+            let can_add_track = !self.new_track_name.trim().is_empty();
+            if ui
+                .add_enabled(can_add_track, egui::Button::new("＋ Track"))
+                .on_hover_text("Add a new named track")
+                .clicked()
+            {
+                let name = self.new_track_name.trim().to_string();
+                // Deduplicate: append a numeric suffix if the name already exists.
+                let base = name.clone();
+                let mut final_name = base.clone();
+                let mut suffix = 2u32;
+                while self.tracks.iter().any(|t| t.name == final_name) {
+                    final_name = format!("{base} {suffix}");
+                    suffix += 1;
+                }
+                self.tracks.push(Track { name: final_name, keyframes: Vec::new() });
+                self.new_track_name.clear();
+                self.selected_track = Some(self.tracks.len() - 1);
+                self.selected_keyframe = None;
+            }
+            if ui
+                .add_enabled(track_sel, egui::Button::new("🗑 Track"))
+                .on_hover_text("Delete selected track and all its keyframes")
+                .clicked()
+            {
+                if let Some(ti) = self.selected_track {
+                    if ti < self.tracks.len() {
+                        self.tracks.remove(ti);
+                        self.selected_track = if self.tracks.is_empty() {
+                            None
+                        } else {
+                            Some(ti.min(self.tracks.len() - 1))
+                        };
+                        self.selected_keyframe = None;
+                    }
+                }
+            }
+
+            ui.separator();
+            if ui
+                .button("💾 Save")
+                .on_hover_text("Save animation to <asset_root>/animations/animation.toml")
+                .clicked()
+            {
+                self.save_animation(ctx);
+            }
+            if ui
+                .button("📂 Load")
+                .on_hover_text("Load animation from <asset_root>/animations/animation.toml")
+                .clicked()
+            {
+                self.load_animation(ctx);
+            }
         });
+
+        // Status line
+        if !self.save_status.is_empty() {
+            ui.label(
+                egui::RichText::new(&self.save_status)
+                    .size(11.0)
+                    .color(Color32::from_rgb(160, 200, 160)),
+            );
+        }
 
         // Track info hint
         if let Some(ti) = self.selected_track {

@@ -44,8 +44,6 @@ struct UiWidget {
     label: String,
     kind: WidgetKind,
     rect: egui::Rect,
-    #[allow(dead_code)]
-    selected: bool,
 }
 
 /// UI Layout Editor panel.
@@ -56,9 +54,12 @@ pub struct UiEditorPanel {
     widgets: Vec<UiWidget>,
     #[allow(dead_code)]
     canvas_offset: egui::Vec2,
+    /// Index of the widget currently being dragged.
     dragging: Option<usize>,
     drag_start: egui::Pos2,
     widget_start: egui::Pos2,
+    /// Index of the selected widget (click to select, Delete button to remove).
+    selected_widget: Option<usize>,
 }
 
 impl Default for UiEditorPanel {
@@ -72,7 +73,6 @@ impl Default for UiEditorPanel {
                         egui::pos2(40.0, 40.0),
                         egui::vec2(160.0, 80.0),
                     ),
-                    selected: false,
                 },
                 UiWidget {
                     label: "Health Bar".to_string(),
@@ -81,7 +81,6 @@ impl Default for UiEditorPanel {
                         egui::pos2(60.0, 60.0),
                         egui::vec2(120.0, 20.0),
                     ),
-                    selected: false,
                 },
                 UiWidget {
                     label: "Minimap".to_string(),
@@ -90,13 +89,13 @@ impl Default for UiEditorPanel {
                         egui::pos2(240.0, 30.0),
                         egui::vec2(80.0, 80.0),
                     ),
-                    selected: false,
                 },
             ],
             canvas_offset: egui::Vec2::ZERO,
             dragging: None,
             drag_start: egui::Pos2::ZERO,
             widget_start: egui::Pos2::ZERO,
+            selected_widget: None,
         }
     }
 }
@@ -117,7 +116,6 @@ impl EditorPanel for UiEditorPanel {
                         egui::pos2(20.0 + self.widgets.len() as f32 * 10.0, 20.0),
                         kind.default_size(),
                     ),
-                    selected: false,
                 });
             }
             if ui.button("＋ Label").clicked() {
@@ -129,7 +127,6 @@ impl EditorPanel for UiEditorPanel {
                         egui::pos2(20.0 + self.widgets.len() as f32 * 10.0, 60.0),
                         kind.default_size(),
                     ),
-                    selected: false,
                 });
             }
             if ui.button("＋ Button").clicked() {
@@ -141,8 +138,22 @@ impl EditorPanel for UiEditorPanel {
                         egui::pos2(20.0 + self.widgets.len() as f32 * 10.0, 100.0),
                         kind.default_size(),
                     ),
-                    selected: false,
                 });
+            }
+            ui.separator();
+            let delete_enabled = self.selected_widget.is_some();
+            if ui
+                .add_enabled(delete_enabled, egui::Button::new("🗑 Delete"))
+                .on_hover_text("Delete selected widget")
+                .clicked()
+            {
+                if let Some(idx) = self.selected_widget {
+                    if idx < self.widgets.len() {
+                        self.widgets.remove(idx);
+                    }
+                    self.selected_widget = None;
+                    self.dragging = None;
+                }
             }
             ui.separator();
             ui.label(format!("{} widgets", self.widgets.len()));
@@ -172,7 +183,7 @@ impl EditorPanel for UiEditorPanel {
             }
         }
 
-        // Handle drag
+        // Handle drag and click-to-select
         if response.drag_started() {
             self.dragging = None;
             if let Some(pos) = response.interact_pointer_pos() {
@@ -180,6 +191,7 @@ impl EditorPanel for UiEditorPanel {
                     let screen_rect = w.rect.translate(canvas_rect.min.to_vec2());
                     if screen_rect.contains(pos) {
                         self.dragging = Some(i);
+                        self.selected_widget = Some(i);
                         self.drag_start = pos;
                         self.widget_start = w.rect.min;
                         break;
@@ -199,24 +211,43 @@ impl EditorPanel for UiEditorPanel {
         if response.drag_stopped() {
             self.dragging = None;
         }
+        // Click on canvas background (not a drag) deselects.
+        if response.clicked() {
+            let hit = response.interact_pointer_pos().map(|pos| {
+                self.widgets.iter().any(|w| {
+                    w.rect.translate(canvas_rect.min.to_vec2()).contains(pos)
+                })
+            });
+            if hit != Some(true) {
+                self.selected_widget = None;
+            }
+        }
 
         // Draw widgets
-        for (i, widget) in self.widgets.iter_mut().enumerate() {
+        let selected_widget = self.selected_widget;
+        let dragging = self.dragging;
+        for (i, widget) in self.widgets.iter().enumerate() {
             let screen_rect = widget.rect.translate(canvas_rect.min.to_vec2());
             if !canvas_rect.intersects(screen_rect) {
                 continue;
             }
-            let is_dragged = self.dragging == Some(i);
+            let is_dragged = dragging == Some(i);
+            let is_selected = selected_widget == Some(i);
             let fill = if is_dragged {
                 Color32::from_rgb(60, 90, 130)
             } else {
                 widget.kind.fill_color()
             };
             painter.rect_filled(screen_rect, 4.0, fill);
+            let (stroke_width, stroke_color) = if is_selected {
+                (2.5, Color32::from_rgb(220, 220, 255))
+            } else {
+                (1.5, Color32::from_rgb(120, 140, 180))
+            };
             painter.rect_stroke(
                 screen_rect,
                 4.0,
-                egui::Stroke::new(1.5, Color32::from_rgb(120, 140, 180)),
+                egui::Stroke::new(stroke_width, stroke_color),
                 egui::StrokeKind::Middle,
             );
             let display = format!("[{}] {}", widget.kind.label(), widget.label);
@@ -232,7 +263,7 @@ impl EditorPanel for UiEditorPanel {
         painter.text(
             canvas_rect.left_bottom() + egui::vec2(8.0, -10.0),
             egui::Align2::LEFT_BOTTOM,
-            "Drag widgets to reposition  •  full property binding pending",
+            "Click to select  •  drag to reposition  •  🗑 Delete removes selected widget",
             egui::FontId::proportional(10.0),
             Color32::from_rgb(70, 70, 90),
         );

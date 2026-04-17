@@ -2,6 +2,8 @@
 
 use egui::Color32;
 use novaforge_ui::{EditorPanel, PanelContext};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Width of the entity list sidebar in pixels.
 const ENTITY_LIST_WIDTH: f32 = 160.0;
@@ -16,7 +18,7 @@ pub enum GizmoMode {
 }
 
 /// A single entity in the scene.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct SceneEntity {
     name: String,
     position: [f32; 3],
@@ -35,9 +37,16 @@ impl SceneEntity {
     }
 }
 
+/// Serialisable wrapper used when writing / reading the scene file.
+#[derive(Serialize, Deserialize)]
+struct SceneFile {
+    entities: Vec<SceneEntity>,
+}
+
 /// Scene Editor panel.
 ///
 /// Displays a 3-D viewport placeholder and a basic entity list / inspector.
+/// Entities can be saved to and loaded from `<asset_root>/scenes/scene.toml`.
 /// Full rendering will be wired in when Nova-Forge's render pipeline is
 /// integrated.
 pub struct SceneEditor {
@@ -46,6 +55,8 @@ pub struct SceneEditor {
     selected: Option<usize>,
     /// Counter used to generate unique default names.
     entity_counter: u32,
+    /// Status message shown below the toolbar (save/load feedback).
+    scene_status: String,
 }
 
 impl Default for SceneEditor {
@@ -63,6 +74,7 @@ impl Default for SceneEditor {
             ],
             selected: None,
             entity_counter: 2,
+            scene_status: String::new(),
         }
     }
 }
@@ -71,6 +83,84 @@ impl SceneEditor {
     pub fn new() -> Self {
         Self::default()
     }
+
+    /// Returns the canonical scene file path derived from the project context.
+    fn scene_path(ctx: &PanelContext) -> Option<PathBuf> {
+        ctx.asset_root
+            .as_ref()
+            .map(|r| r.join("scenes").join("scene.toml"))
+    }
+
+    fn save_scene(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::scene_path(ctx) else {
+            self.scene_status = "No project loaded — cannot save scene.".to_string();
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                self.scene_status = format!("Directory error: {e}");
+                return;
+            }
+        }
+        let file = SceneFile {
+            entities: self.entities.clone(),
+        };
+        match toml::to_string_pretty(&file) {
+            Ok(content) => match std::fs::write(&path, content) {
+                Ok(()) => {
+                    self.scene_status = format!("Saved → {}", path.display());
+                }
+                Err(e) => {
+                    self.scene_status = format!("Write error: {e}");
+                }
+            },
+            Err(e) => {
+                self.scene_status = format!("Serialise error: {e}");
+            }
+        }
+    }
+
+    fn load_scene(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::scene_path(ctx) else {
+            self.scene_status = "No project loaded — cannot load scene.".to_string();
+            return;
+        };
+        match std::fs::read_to_string(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.scene_status = format!("File not found: {}", path.display());
+            }
+            Err(e) => {
+                self.scene_status = format!("Read error: {e}");
+            }
+            Ok(content) => match toml::from_str::<SceneFile>(&content) {
+                Ok(file) => {
+                    let count = file.entities.len();
+                    self.entities = file.entities;
+                    self.selected = None;
+                    // Set entity_counter to one above the highest numeric suffix
+                    // found in loaded entity names (e.g. "Entity 10" → 11), so
+                    // that new entities added after loading never duplicate an
+                    // existing name.
+                    let max_suffix = self
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            e.name
+                                .strip_prefix("Entity ")
+                                .and_then(|s| s.parse::<u32>().ok())
+                        })
+                        .max()
+                        .unwrap_or(0);
+                    self.entity_counter = self.entity_counter.max(max_suffix);
+                    self.scene_status =
+                        format!("Loaded {count} entities ← {}", path.display());
+                }
+                Err(e) => {
+                    self.scene_status = format!("Parse error: {e}");
+                }
+            },
+        }
+    }
 }
 
 impl EditorPanel for SceneEditor {
@@ -78,7 +168,7 @@ impl EditorPanel for SceneEditor {
         "Scene Editor"
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &PanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &PanelContext) {
         // Toolbar
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.gizmo_mode, GizmoMode::Translate, "⬆ Translate");
@@ -107,7 +197,22 @@ impl EditorPanel for SceneEditor {
                     };
                 }
             }
+            ui.separator();
+            if ui.button("💾 Save").on_hover_text("Save scene to <asset_root>/scenes/scene.toml").clicked() {
+                self.save_scene(ctx);
+            }
+            if ui.button("📂 Load").on_hover_text("Load scene from <asset_root>/scenes/scene.toml").clicked() {
+                self.load_scene(ctx);
+            }
         });
+
+        if !self.scene_status.is_empty() {
+            ui.label(
+                egui::RichText::new(&self.scene_status)
+                    .size(11.0)
+                    .color(Color32::from_rgb(160, 200, 160)),
+            );
+        }
 
         ui.separator();
 

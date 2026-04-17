@@ -186,7 +186,12 @@ impl EditorPanel for DataEditor {
                     tags: String::new(),
                 });
             }
-            if ui.button("🗑 Delete").clicked() {
+            let delete_enabled = self.selected_row.is_some();
+            if ui
+                .add_enabled(delete_enabled, egui::Button::new("🗑 Delete"))
+                .on_hover_text("Delete selected row")
+                .clicked()
+            {
                 if let Some(idx) = self.selected_row {
                     if idx < self.rows.len() {
                         self.rows.remove(idx);

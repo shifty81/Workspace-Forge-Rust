@@ -146,6 +146,13 @@ impl EditorPanel for BuildToolPanel {
                 {
                     self.spawn_command(BuildCommand::Run, nova_forge_path);
                 }
+                if ui
+                    .button("🖥 Server")
+                    .on_hover_text("Build and run dedicated server")
+                    .clicked()
+                {
+                    self.spawn_command(BuildCommand::RunServer, nova_forge_path);
+                }
                 if ui.button("🧪 Test").on_hover_text("cargo test").clicked() {
                     self.spawn_command(BuildCommand::Test, nova_forge_path);
                 }

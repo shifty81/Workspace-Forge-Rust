@@ -25,6 +25,8 @@ pub struct VLogicEditor {
     selected_node: Option<usize>,
     /// Next unique node ID.
     next_id: usize,
+    /// Index of the node currently being dragged, if any.
+    dragging_node: Option<usize>,
 }
 
 impl Default for VLogicEditor {
@@ -60,6 +62,7 @@ impl Default for VLogicEditor {
             pan: egui::Vec2::ZERO,
             selected_node: None,
             next_id: 4,
+            dragging_node: None,
         }
     }
 }
@@ -147,10 +150,39 @@ impl EditorPanel for VLogicEditor {
         ui.separator();
 
         let available = ui.available_size();
-        let (canvas_rect, response) = ui.allocate_exact_size(available, egui::Sense::drag());
+        let (canvas_rect, response) = ui.allocate_exact_size(available, egui::Sense::click_and_drag());
 
+        // Node dimensions (needed before drag handling).
+        let node_w = 130.0 * self.zoom;
+        let node_h = 32.0 * self.zoom;
+
+        // ── Drag handling: node drag vs. canvas pan ───────────────────────────
+        if response.drag_started() {
+            self.dragging_node = None;
+            if let Some(pos) = response.interact_pointer_pos() {
+                for (idx, node) in self.nodes.iter().enumerate() {
+                    let top_left = canvas_rect.min + self.pan + node.pos.to_vec2() * self.zoom;
+                    let rect = egui::Rect::from_min_size(top_left, egui::vec2(node_w, node_h));
+                    if rect.contains(pos) {
+                        self.dragging_node = Some(idx);
+                        self.selected_node = Some(idx);
+                        break;
+                    }
+                }
+            }
+        }
         if response.dragged() {
-            self.pan += response.drag_delta();
+            let delta = response.drag_delta();
+            if let Some(idx) = self.dragging_node {
+                if let Some(node) = self.nodes.get_mut(idx) {
+                    node.pos += delta / self.zoom;
+                }
+            } else {
+                self.pan += delta;
+            }
+        }
+        if response.drag_stopped() {
+            self.dragging_node = None;
         }
 
         let painter = ui.painter_at(canvas_rect);
@@ -171,8 +203,6 @@ impl EditorPanel for VLogicEditor {
         }
 
         // Edges (stub connections as straight lines between node centres)
-        let node_w = 130.0 * self.zoom;
-        let node_h = 32.0 * self.zoom;
         let node_positions: Vec<egui::Pos2> = self
             .nodes
             .iter()
@@ -240,7 +270,7 @@ impl EditorPanel for VLogicEditor {
         painter.text(
             canvas_rect.left_bottom() + egui::vec2(8.0, -12.0),
             egui::Align2::LEFT_BOTTOM,
-            "Visual Logic graph — drag to pan  •  click a node to select  •  full integration pending",
+            "Visual Logic graph — drag canvas to pan  •  drag a node to move it  •  click a node to select",
             egui::FontId::proportional(10.0),
             Color32::from_rgb(70, 70, 90),
         );

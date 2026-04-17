@@ -9,7 +9,7 @@
 use eframe::egui;
 use egui_dock::{DockArea, DockState, NodeIndex, TabViewer};
 use novaforge_ai::{StubAI, WorkspaceAI};
-use novaforge_project::{WorkspaceManifest, MANIFEST_FILE};
+use novaforge_project::{AssetKind, WorkspaceManifest, MANIFEST_FILE};
 
 // Editor panel imports
 use editor_animation::AnimationEditor;
@@ -33,7 +33,11 @@ fn main() -> eframe::Result<()> {
                 .with_title("NovaForge Workspace — Editor Suite"),
             ..Default::default()
         },
-        Box::new(|_cc| Ok(Box::new(EditorApp::new()))),
+        Box::new(|cc| {
+            // Apply dark visuals immediately so the very first frame is dark.
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            Ok(Box::new(EditorApp::new()))
+        }),
     )
 }
 
@@ -152,6 +156,34 @@ impl TabViewer for EditorTabViewer<'_> {
 }
 
 // ---------------------------------------------------------------------------
+// Theme
+// ---------------------------------------------------------------------------
+
+/// Editor colour theme.  Defaults to [`Theme::Dark`].
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+enum Theme {
+    #[default]
+    Dark,
+    Light,
+}
+
+impl Theme {
+    fn visuals(self) -> egui::Visuals {
+        match self {
+            Theme::Dark => egui::Visuals::dark(),
+            Theme::Light => egui::Visuals::light(),
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Theme::Dark => "🌙 Dark",
+            Theme::Light => "☀ Light",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Master editor app
 // ---------------------------------------------------------------------------
 
@@ -162,6 +194,7 @@ struct EditorApp {
     project_path_input: String,
     panel_ctx: PanelContext,
     status: String,
+    theme: Theme,
 }
 
 impl EditorApp {
@@ -208,6 +241,7 @@ impl EditorApp {
             project_path_input: String::new(),
             panel_ctx: PanelContext::default(),
             status: "No project loaded.".to_string(),
+            theme: Theme::Dark,
         }
     }
 
@@ -314,8 +348,17 @@ impl EditorApp {
                         }
                     }
                     ui.separator();
+                    ui.label(egui::RichText::new("Theme").weak());
+                    for t in [Theme::Dark, Theme::Light] {
+                        if ui.radio(self.theme == t, t.label()).clicked() {
+                            self.theme = t;
+                        }
+                    }
+                    ui.separator();
                     if ui.button("Reset Layout").clicked() {
+                        let theme = self.theme;
                         *self = EditorApp::new();
+                        self.theme = theme;
                         ui.close_menu();
                     }
                 });
@@ -376,6 +419,9 @@ impl EditorApp {
 
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Keep visuals in sync with the chosen theme (cheap — egui deduplicates).
+        ctx.set_visuals(self.theme.visuals());
+
         // Background updates (build log polling, animation playhead)
         self.panels.background_update_all();
 
@@ -403,23 +449,46 @@ struct WorkspaceBrowser {
     entries: Vec<BrowserEntry>,
     filter: String,
     selected: Option<usize>,
+    /// Relative paths of directories that are currently collapsed.
+    collapsed: std::collections::HashSet<String>,
 }
 
 #[derive(Clone)]
 struct BrowserEntry {
     display: String,
+    /// Relative path from the asset root (forward-slash separated).
+    path: String,
     is_dir: bool,
     depth: usize,
+    /// Icon string inferred from the file extension for non-directory entries.
+    icon: &'static str,
 }
 
 impl WorkspaceBrowser {
     fn set_root(&mut self, root: PathBuf) {
-        self.root = Some(root.clone());
-        self.entries = scan_dir(&root, 0);
+        self.entries = scan_dir(&root, &root, 0);
+        self.root = Some(root);
+        self.selected = None;
+        // Reset collapse state — paths are relative to the root, so stale
+        // collapsed entries from a previous project would be meaningless.
+        self.collapsed.clear();
+    }
+
+    /// Returns `true` if any ancestor directory of `path` is in the collapsed
+    /// set.  `path` is a relative, forward-slash separated string.
+    fn is_ancestor_collapsed(&self, path: &str) -> bool {
+        let parts: Vec<&str> = path.split('/').collect();
+        for i in 0..parts.len().saturating_sub(1) {
+            let ancestor = parts[..=i].join("/");
+            if self.collapsed.contains(&ancestor) {
+                return true;
+            }
+        }
+        false
     }
 }
 
-fn scan_dir(path: &PathBuf, depth: usize) -> Vec<BrowserEntry> {
+fn scan_dir(path: &PathBuf, root: &PathBuf, depth: usize) -> Vec<BrowserEntry> {
     let mut entries = Vec::new();
     if depth > 4 {
         return entries;
@@ -433,13 +502,25 @@ fn scan_dir(path: &PathBuf, depth: usize) -> Vec<BrowserEntry> {
         let p = item.path();
         let name = item.file_name().to_string_lossy().to_string();
         let is_dir = p.is_dir();
+        let rel_path = p
+            .strip_prefix(root)
+            .map(|r| r.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| name.clone());
+        let icon = if is_dir {
+            "📁"
+        } else {
+            let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+            AssetKind::from_extension(ext).icon()
+        };
         entries.push(BrowserEntry {
-            display: name.clone(),
+            display: name,
+            path: rel_path,
             is_dir,
             depth,
+            icon,
         });
         if is_dir {
-            entries.extend(scan_dir(&p, depth + 1));
+            entries.extend(scan_dir(&p, root, depth + 1));
         }
     }
     entries
@@ -458,6 +539,11 @@ impl EditorPanel for WorkspaceBrowser {
                     .hint_text("Filter…")
                     .desired_width(f32::INFINITY),
             );
+            if ui.small_button("⟳").on_hover_text("Refresh file tree").clicked() {
+                if let Some(root) = self.root.clone().or_else(|| ctx.asset_root.clone()) {
+                    self.set_root(root);
+                }
+            }
         });
 
         if let Some(ref root) = self.root {
@@ -476,25 +562,52 @@ impl EditorPanel for WorkspaceBrowser {
 
         let filter_lower = self.filter.to_lowercase();
 
+        // Collect toggle actions outside the borrow on self.entries to avoid
+        // a simultaneous mutable + immutable borrow conflict.
+        let mut toggle_path: Option<String> = None;
+        let mut new_selected = self.selected;
+
         egui::ScrollArea::vertical().show(ui, |ui| {
-            let mut new_selected = self.selected;
             for (i, entry) in self.entries.iter().enumerate() {
-                if !filter_lower.is_empty() && !entry.display.to_lowercase().contains(&filter_lower)
+                // Hide entries whose parent directory is collapsed.
+                if self.is_ancestor_collapsed(&entry.path) {
+                    continue;
+                }
+
+                // When filtering, show only entries whose name matches (and
+                // always show directories so the tree structure is preserved).
+                if !filter_lower.is_empty()
+                    && !entry.is_dir
+                    && !entry.display.to_lowercase().contains(&filter_lower)
                 {
                     continue;
                 }
-                let indent = entry.depth as f32 * 12.0;
-                ui.horizontal(|ui| {
-                    ui.add_space(indent);
-                    let icon = if entry.is_dir { "📁" } else { "📄" };
-                    let label = format!("{icon} {}", entry.display);
-                    let selected = self.selected == Some(i);
-                    if ui.selectable_label(selected, label).clicked() {
-                        new_selected = Some(i);
-                    }
-                });
+
+                let indent = entry.depth as f32 * 14.0;
+
+                if entry.is_dir {
+                    let is_collapsed = self.collapsed.contains(&entry.path);
+                    let arrow = if is_collapsed { "▸" } else { "▾" };
+                    ui.horizontal(|ui| {
+                        ui.add_space(indent);
+                        if ui
+                            .small_button(format!("{arrow} 📁 {}", entry.display))
+                            .clicked()
+                        {
+                            toggle_path = Some(entry.path.clone());
+                        }
+                    });
+                } else {
+                    ui.horizontal(|ui| {
+                        ui.add_space(indent);
+                        let label = format!("{} {}", entry.icon, entry.display);
+                        let selected = self.selected == Some(i);
+                        if ui.selectable_label(selected, label).clicked() {
+                            new_selected = Some(i);
+                        }
+                    });
+                }
             }
-            self.selected = new_selected;
 
             if self.entries.is_empty() && self.root.is_some() {
                 ui.label(
@@ -510,6 +623,17 @@ impl EditorPanel for WorkspaceBrowser {
                 );
             }
         });
+
+        // Apply the collapse / expand toggle after the borrow on entries ends.
+        if let Some(path) = toggle_path {
+            if self.collapsed.contains(&path) {
+                self.collapsed.remove(&path);
+            } else {
+                self.collapsed.insert(path);
+            }
+        }
+
+        self.selected = new_selected;
     }
 }
 

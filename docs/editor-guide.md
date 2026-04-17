@@ -58,6 +58,9 @@ Every tab can be **dragged** to a different location, **closed** (View menu →
 uncheck the panel name), or **re-opened** (View menu → check it back on).
 **View → Reset Layout** restores the default arrangement.
 
+The editor opens in **dark mode** by default.  Switch between dark and light via
+**View → Theme → 🌙 Dark / ☀ Light** at any time.
+
 ---
 
 ## Panel Reference
@@ -69,11 +72,16 @@ Displays the file tree of the project's asset root directory.
 | Action | How |
 |---|---|
 | Filter entries | Type in the 🔍 search box at the top |
+| Refresh the file tree | Click the **⟳** button next to the search box |
+| Expand a directory | Click **▾ 📁 dirname** (expanded by default) |
+| Collapse a directory | Click **▾ 📁 dirname** to toggle to **▸ 📁 dirname** |
 | Select a file | Click its row |
-| Refresh | Reload the project (File → Open) |
 
 The browser auto-populates when you open a project and reflects the asset root
-defined in `novaforge.workspace.toml`.
+defined in `novaforge.workspace.toml`.  Directories start expanded; click the
+arrow prefix to collapse any subtree.  File icons are inferred from their
+extension using the same type map as the Asset Editor (🖼 textures, 📦 models,
+🔊 sounds, 🌐 scenes, 📄 other).
 
 ---
 
@@ -86,6 +94,8 @@ A world/scene editor with an entity list and transform inspector.
 | **⬆ Translate / ↻ Rotate / ⤢ Scale** | Select the active gizmo mode |
 | **＋ Entity** | Add a new entity to the scene |
 | **🗑 Delete** | Remove the selected entity (enabled only when something is selected) |
+| **💾 Save** | Serialise all entities to `<asset_root>/scenes/scene.toml` |
+| **📂 Load** | Load entities from `<asset_root>/scenes/scene.toml` |
 | Click an entity row | Select it; transform fields appear in the inspector below the viewport |
 | **Name** field | Rename the selected entity |
 | **Position / Rotation / Scale** drag-values | Edit the transform; drag left/right to change, or click to type |
@@ -129,6 +139,7 @@ A node-graph canvas for authoring materials and shaders.
 | **🔍＋ / 🔍−** | Zoom the canvas in or out |
 | **⊙ Reset View** | Return to default zoom and pan |
 | Click a node | Select it (highlighted border; name shown in toolbar) |
+| Drag a node | Reposition it on the canvas |
 | Drag the canvas background | Pan the view |
 
 Each node displays coloured port stubs on its left (inputs) and right (output)
@@ -150,6 +161,7 @@ A blueprint-style node graph for scripting game logic without code.
 | **🔍＋ / 🔍−** | Zoom in / out |
 | **⊙ Reset** | Reset zoom and pan |
 | Click a node | Select it (thicker border; name shown in toolbar) |
+| Drag a node | Reposition it on the canvas |
 | Drag the canvas background | Pan the view |
 
 Edges between the default starter nodes are drawn as straight lines.  A full
@@ -166,7 +178,10 @@ A drag-and-drop canvas for designing in-game UI layouts.
 | **＋ Panel** | Add a Panel widget (dark blue, 120 × 60 px default) |
 | **＋ Label** | Add a Label widget (dark green, 100 × 20 px default) |
 | **＋ Button** | Add a Button widget (dark purple, 90 × 28 px default) |
+| **🗑 Delete** | Remove the selected widget (enabled when a widget is selected) |
+| Click a widget | Select it (bright border highlight) |
 | Drag a widget | Move it around the canvas |
+| Click the canvas background | Deselect the current widget |
 | Widget count badge | Shows total number of widgets in the toolbar |
 
 Each widget type is colour-coded on the canvas.  Full property binding and
@@ -184,10 +199,14 @@ A timeline editor for skeletal animation clips.
 | **▶ Play / ⏸ Pause** | Toggle playback |
 | **⏹ Stop** | Stop and reset playhead to 0 |
 | **Zoom ＋ / −** | Stretch / compress the timeline horizontally |
-| Click a track label | Select the track (required for keyframe operations) |
-| Click a keyframe diamond | Select the keyframe on its track |
+| **Track: [name] ＋ Track** | Type a track name then click **＋ Track** to add a new track |
+| **🗑 Track** | Delete the selected track and all its keyframes (enabled when a track is selected) |
 | **＋ Keyframe** | Add a keyframe at the current playhead position on the selected track |
 | **🗑 Keyframe** | Delete the selected keyframe |
+| **💾 Save** | Serialise tracks to `<asset_root>/animations/animation.toml` |
+| **📂 Load** | Load tracks from `<asset_root>/animations/animation.toml` |
+| Click a track label | Select the track (required for keyframe operations) |
+| Click a keyframe diamond | Select the keyframe on its track |
 | Click the ruler row | Scrub the playhead to that time |
 
 Time is displayed as `<current> / <total>` seconds in the transport bar.  The
@@ -203,7 +222,7 @@ A spreadsheet-style editor for game data tables (items, NPCs, zones, etc.).
 |---|---|
 | 🔍 search box | Filter rows across all columns |
 | **＋ Row** | Append a new blank row |
-| **🗑 Delete** | Remove the selected row |
+| **🗑 Delete** | Remove the selected row (enabled only when a row is selected) |
 | **💾 Save** | Write all rows to `<asset_root>/data/data_table.toml` |
 | **📂 Load** | Load rows from `<asset_root>/data/data_table.toml` |
 | Click a row | Select it; the inline **Edit Row** form appears below |
@@ -224,6 +243,7 @@ Runs `nova-forge.sh` commands and streams live log output.
 | **🚀 Release** | `nova-forge.sh release` (optimised) |
 | **🧹 Clean** | `nova-forge.sh clean` |
 | **▶ Run** | `nova-forge.sh run` (build + launch client) |
+| **🖥 Server** | `nova-forge.sh server` (build + launch dedicated server) |
 | **🧪 Test** | `nova-forge.sh test` |
 | **🗑 Clear** | Clear the log pane |
 | **Auto-scroll** checkbox | Keep the log scrolled to the newest line |
