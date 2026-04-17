@@ -1,0 +1,4 @@
+[submodule "nova-forge"]
+	path = nova-forge
+	url = https://github.com/shifty81/Nova-Forge
+	branch = main

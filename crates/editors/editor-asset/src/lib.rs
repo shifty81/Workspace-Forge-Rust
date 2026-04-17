@@ -22,10 +22,19 @@ impl AssetEntry {
     }
 }
 
+/// Asset kind filter state — `None` means "show all".
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum KindFilter {
+    #[default]
+    All,
+    Only(AssetKind),
+}
+
 /// Asset Browser & Editor panel.
 #[derive(Default)]
 pub struct AssetEditor {
     filter: String,
+    kind_filter: KindFilter,
     selected: Option<usize>,
     assets: Vec<AssetEntry>,
     /// The root we last scanned so we can detect when it changes.
@@ -83,6 +92,32 @@ impl EditorPanel for AssetEditor {
             });
         });
 
+        // Kind-filter buttons
+        ui.horizontal(|ui| {
+            let all_selected = self.kind_filter == KindFilter::All;
+            if ui.selectable_label(all_selected, "All").clicked() {
+                self.kind_filter = KindFilter::All;
+                self.selected = None;
+            }
+            for (kind, label) in [
+                (AssetKind::Texture, "🖼 Texture"),
+                (AssetKind::Model, "📦 Model"),
+                (AssetKind::Sound, "🔊 Sound"),
+                (AssetKind::Scene, "🌐 Scene"),
+                (AssetKind::Other, "📄 Other"),
+            ] {
+                let active = self.kind_filter == KindFilter::Only(kind);
+                if ui.selectable_label(active, label).clicked() {
+                    self.kind_filter = if active {
+                        KindFilter::All
+                    } else {
+                        KindFilter::Only(kind)
+                    };
+                    self.selected = None;
+                }
+            }
+        });
+
         if let Some(root) = ctx.asset_root.as_ref() {
             ui.label(
                 egui::RichText::new(format!("Root: {}", root.display()))
@@ -115,10 +150,17 @@ impl EditorPanel for AssetEditor {
                 }
 
                 for (i, entry) in self.assets.iter().enumerate() {
+                    // Text filter
                     if !filter_lower.is_empty()
                         && !entry.relative_path.to_lowercase().contains(&filter_lower)
                     {
                         continue;
+                    }
+                    // Kind filter
+                    if let KindFilter::Only(kind) = self.kind_filter {
+                        if entry.kind != kind {
+                            continue;
+                        }
                     }
 
                     let selected = self.selected == Some(i);

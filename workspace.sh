@@ -7,6 +7,7 @@
 #   editors   Build and launch the full editor suite
 #   build     Build all crates (debug)
 #   release   Build all crates (optimised release)
+#   build-game  Build the Nova-Forge game (requires submodule; see README)
 #   test      Run all workspace tests
 #   check     Run cargo check (fast compile check)
 #   clippy    Run cargo clippy (lint)
@@ -36,6 +37,16 @@ case "$CMD" in
     release)
         echo "[workspace] Building all crates (release)…"
         cargo build --workspace --release "${@:2}"
+        ;;
+    build-game)
+        echo "[workspace] Building Nova-Forge game (nova-forge/)…"
+        if [ ! -d "$SCRIPT_DIR/nova-forge" ] || [ -z "$(ls -A "$SCRIPT_DIR/nova-forge")" ]; then
+            echo "ERROR: nova-forge/ submodule not initialised."
+            echo "Run: git submodule update --init --depth 1"
+            exit 1
+        fi
+        cd "$SCRIPT_DIR/nova-forge"
+        bash nova-forge.sh "${@:2}"
         ;;
     test)
         echo "[workspace] Running all tests…"
