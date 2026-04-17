@@ -68,9 +68,12 @@ NovaForge Workspace stands on the shoulders of extraordinary open-source work.
 ### Quick build & run
 
 ```bash
-# Clone the workspace
-git clone https://github.com/shifty81/Workspace-Forge-Rust.git
+# Clone the workspace *with* the Nova-Forge game submodule
+git clone --recurse-submodules https://github.com/shifty81/Workspace-Forge-Rust.git
 cd Workspace-Forge-Rust
+
+# (If you already cloned without --recurse-submodules, run this once:)
+git submodule update --init --depth 1
 
 # Launch the NovaForge launcher
 ./workspace.sh run
@@ -98,24 +101,48 @@ cargo run -p novaforge-editors
 cargo run -p editor-scene --features standalone
 ```
 
-### Project manifest
+### Opening the Nova-Forge project in the editor
 
-Create a `novaforge.workspace.toml` in your project folder:
+A ready-made `novaforge.workspace.toml` is included at the repository root,
+pointing to the `nova-forge/` submodule:
 
 ```toml
-project_name   = "My NovaForge World"
-nova_forge_path = "../Nova-Forge"
-asset_root      = "../Nova-Forge/assets"
-active_scene    = "world/main.ron"
+project_name    = "Nova-Forge"
+nova_forge_path = "nova-forge"
+asset_root      = "nova-forge/assets"
 ```
 
-Open it from the launcher's **Browse…** button or pass the path on startup.
+In the editor suite, open **File → Open** and type the path to this file
+(or navigate to it with the file chooser), then click **Open**. The
+Workspace Browser and Asset Editor will populate with the real game assets.
+
+### Building the game itself
+
+Nova-Forge uses its own Rust workspace (nightly toolchain) and build script.
+After initialising the submodule you can invoke `nova-forge.sh` through the
+workspace convenience script:
+
+```bash
+# Uses nova-forge/nova-forge.sh internally
+./workspace.sh build-game
+
+# Or invoke nova-forge.sh directly
+cd nova-forge
+bash nova-forge.sh run
+```
+
+> **Note:** Building Nova-Forge itself requires the nightly Rust toolchain
+> (`nightly-2025-09-08`) plus the game's own system dependencies (GPU drivers,
+> audio libraries, etc.).  The `build-game` command is separate from the
+> workspace's own `cargo build`, which only builds the editor tools.
 
 ---
 
 ## Repository Layout
 
 ```
+nova-forge/              # Git submodule — the Nova-Forge game (shifty81/Nova-Forge)
+novaforge.workspace.toml # Ready-made manifest pointing at the submodule
 crates/
   novaforge-workspace/   # Launcher binary
   novaforge-ui/          # Shared UI primitives & EditorPanel trait
