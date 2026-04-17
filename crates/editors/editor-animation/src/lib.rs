@@ -245,7 +245,15 @@ impl EditorPanel for AnimationEditor {
                 .clicked()
             {
                 let name = self.new_track_name.trim().to_string();
-                self.tracks.push(Track { name, keyframes: Vec::new() });
+                // Deduplicate: append a numeric suffix if the name already exists.
+                let base = name.clone();
+                let mut final_name = base.clone();
+                let mut suffix = 2u32;
+                while self.tracks.iter().any(|t| t.name == final_name) {
+                    final_name = format!("{base} {suffix}");
+                    suffix += 1;
+                }
+                self.tracks.push(Track { name: final_name, keyframes: Vec::new() });
                 self.new_track_name.clear();
                 self.selected_track = Some(self.tracks.len() - 1);
                 self.selected_keyframe = None;

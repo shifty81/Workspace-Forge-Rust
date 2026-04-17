@@ -423,6 +423,9 @@ impl WorkspaceBrowser {
         self.entries = scan_dir(&root, &root, 0);
         self.root = Some(root);
         self.selected = None;
+        // Reset collapse state — paths are relative to the root, so stale
+        // collapsed entries from a previous project would be meaningless.
+        self.collapsed.clear();
     }
 
     /// Returns `true` if any ancestor directory of `path` is in the collapsed

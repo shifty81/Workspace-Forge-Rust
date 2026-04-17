@@ -137,10 +137,21 @@ impl SceneEditor {
                     let count = file.entities.len();
                     self.entities = file.entities;
                     self.selected = None;
-                    // Keep entity_counter monotonically increasing so that new
-                    // entities added after a load never share a name with
-                    // entities that already exist in the scene.
-                    self.entity_counter = self.entity_counter.max(count as u32);
+                    // Set entity_counter to one above the highest numeric suffix
+                    // found in loaded entity names (e.g. "Entity 10" → 11), so
+                    // that new entities added after loading never duplicate an
+                    // existing name.
+                    let max_suffix = self
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            e.name
+                                .strip_prefix("Entity ")
+                                .and_then(|s| s.parse::<u32>().ok())
+                        })
+                        .max()
+                        .unwrap_or(0);
+                    self.entity_counter = self.entity_counter.max(max_suffix);
                     self.scene_status =
                         format!("Loaded {count} entities ← {}", path.display());
                 }
