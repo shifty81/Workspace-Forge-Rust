@@ -9,6 +9,7 @@
 use eframe::egui;
 use egui_dock::{DockArea, DockState, NodeIndex, TabViewer};
 use novaforge_ai::{StubAI, WorkspaceAI};
+use novaforge_build::BuildCommand;
 use novaforge_project::{AssetKind, WorkspaceManifest, MANIFEST_FILE};
 
 // Editor panel imports
@@ -201,6 +202,8 @@ struct EditorApp {
     panel_ctx: PanelContext,
     status: String,
     theme: Theme,
+    /// Paths of the last 5 successfully opened projects (most-recent first).
+    recent_projects: Vec<String>,
 }
 
 impl EditorApp {
@@ -251,6 +254,7 @@ impl EditorApp {
             panel_ctx: PanelContext::default(),
             status: "No project loaded.".to_string(),
             theme: Theme::Dark,
+            recent_projects: Vec::new(),
         }
     }
 
@@ -304,6 +308,10 @@ impl EditorApp {
                     .workspace_browser
                     .set_root(manifest.asset_root.clone());
                 self.project = Some(manifest);
+                // Record in recent projects (most-recent first, no duplicates).
+                self.recent_projects.retain(|p| p != &path_str);
+                self.recent_projects.insert(0, path_str);
+                self.recent_projects.truncate(5);
             }
             Err(e) => {
                 self.status = format!("Error: {e}");
@@ -377,6 +385,31 @@ impl EditorApp {
                         }
                         ui.close_menu();
                     }
+                    // Recent Projects submenu (only shown when there is history).
+                    if !self.recent_projects.is_empty() {
+                        ui.separator();
+                        ui.menu_button("Recent Projects", |ui| {
+                            // Collect the list to avoid a mutable + immutable borrow conflict.
+                            let recents = self.recent_projects.clone();
+                            let mut open_path: Option<String> = None;
+                            for path in &recents {
+                                // Shorten long paths for display.
+                                let display = if path.len() > 60 {
+                                    format!("…{}", &path[path.len() - 57..])
+                                } else {
+                                    path.clone()
+                                };
+                                if ui.button(display).on_hover_text(path).clicked() {
+                                    open_path = Some(path.clone());
+                                    ui.close_menu();
+                                }
+                            }
+                            if let Some(path) = open_path {
+                                self.project_path_input = path;
+                                self.load_project();
+                            }
+                        });
+                    }
                     ui.separator();
                     if ui.button("Exit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -403,19 +436,54 @@ impl EditorApp {
                     ui.separator();
                     if ui.button("Reset Layout").clicked() {
                         let theme = self.theme;
+                        let recents = self.recent_projects.clone();
                         *self = EditorApp::new();
                         self.theme = theme;
+                        self.recent_projects = recents;
                         ui.close_menu();
                     }
                 });
 
                 ui.menu_button("Build", |ui| {
-                    if ui.button("🔨 Build (debug)").clicked() {
+                    let nova_path = self.panel_ctx.nova_forge_path.clone();
+                    if ui
+                        .button("🔨 Build (debug)")
+                        .on_hover_text("cargo build  [Ctrl+B]")
+                        .clicked()
+                    {
                         self.ensure_tab_open(Tab::Build);
+                        self.panels
+                            .build
+                            .trigger(BuildCommand::Build, nova_path.as_ref());
                         ui.close_menu();
                     }
-                    if ui.button("🚀 Build (release)").clicked() {
+                    if ui
+                        .button("🚀 Build (release)")
+                        .on_hover_text("cargo build --release")
+                        .clicked()
+                    {
                         self.ensure_tab_open(Tab::Build);
+                        self.panels
+                            .build
+                            .trigger(BuildCommand::Release, nova_path.as_ref());
+                        ui.close_menu();
+                    }
+                    if ui
+                        .button("▶ Run")
+                        .on_hover_text("Build and run the client  [Ctrl+R]")
+                        .clicked()
+                    {
+                        self.ensure_tab_open(Tab::Build);
+                        self.panels
+                            .build
+                            .trigger(BuildCommand::Run, nova_path.as_ref());
+                        ui.close_menu();
+                    }
+                    if ui.button("🧪 Test").on_hover_text("cargo test").clicked() {
+                        self.ensure_tab_open(Tab::Build);
+                        self.panels
+                            .build
+                            .trigger(BuildCommand::Test, nova_path.as_ref());
                         ui.close_menu();
                     }
                 });
@@ -475,6 +543,36 @@ impl eframe::App for EditorApp {
         // the Game File Editor can auto-open the chosen file.
         self.panel_ctx.selected_file =
             self.panels.workspace_browser.selected_absolute_path();
+
+        // ── Keyboard shortcuts ────────────────────────────────────────────────
+        // Ctrl+S — save the currently open file in the Game File Editor.
+        // Ctrl+B — trigger a debug build.
+        // Ctrl+R — run the game client.
+        let (ctrl_s, ctrl_b, ctrl_r) = ctx.input(|i| {
+            let ctrl = i.modifiers.ctrl || i.modifiers.mac_cmd;
+            (
+                ctrl && i.key_pressed(egui::Key::S),
+                ctrl && i.key_pressed(egui::Key::B),
+                ctrl && i.key_pressed(egui::Key::R),
+            )
+        });
+        if ctrl_s {
+            self.panels.game_file.save_if_dirty();
+        }
+        if ctrl_b {
+            let nova_path = self.panel_ctx.nova_forge_path.clone();
+            self.ensure_tab_open(Tab::Build);
+            self.panels
+                .build
+                .trigger(BuildCommand::Build, nova_path.as_ref());
+        }
+        if ctrl_r {
+            let nova_path = self.panel_ctx.nova_forge_path.clone();
+            self.ensure_tab_open(Tab::Build);
+            self.panels
+                .build
+                .trigger(BuildCommand::Run, nova_path.as_ref());
+        }
 
         self.show_menu_bar(ctx);
         self.show_status_bar(ctx);

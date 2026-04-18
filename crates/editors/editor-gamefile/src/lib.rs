@@ -96,6 +96,14 @@ impl GameFileEditor {
             }
         }
     }
+
+    /// Save the open file only if there are unsaved changes.
+    /// Called by the main app for the Ctrl+S keyboard shortcut.
+    pub fn save_if_dirty(&mut self) {
+        if self.dirty {
+            self.save();
+        }
+    }
 }
 
 impl EditorPanel for GameFileEditor {

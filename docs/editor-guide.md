@@ -44,6 +44,17 @@ Once a project is loaded the status bar at the bottom of the window shows the
 project name, and the **Workspace Browser** and **Asset Editor** panels
 populate automatically.
 
+### Recent Projects
+
+After you successfully open a project its path is remembered for the current
+session.  Up to **5 recent paths** are stored.  To re-open one:
+
+1. Open the **File** menu.
+2. Hover over **Recent Projects** (appears once at least one project has been
+   opened).
+3. Click any entry in the list — the path fills the field and the project loads
+   immediately.
+
 ---
 
 ## Layout Overview
@@ -284,6 +295,7 @@ Supported extensions: `.toml`, `.ron`, `.json`, `.yaml`, `.yml`, `.lua`, `.txt`,
 | **💾 Save** | Write the buffer to disk (enabled only when there are unsaved edits) |
 | **✖ Close** | Close the file (unsaved changes are discarded without warning) |
 | Editor area | Monospace text editor; any keystroke marks the file as dirty |
+| **Ctrl+S** | Save the open file from anywhere in the editor |
 
 > The editor stores one buffer at a time.  Opening a second file from the
 > Workspace Browser replaces the current buffer.
@@ -293,6 +305,11 @@ Supported extensions: `.toml`, `.ron`, `.json`, `.yaml`, `.yml`, `.lua`, `.txt`,
 ### 🔨 Build Tool
 
 Runs `nova-forge.sh` commands and streams live log output.
+
+Builds can be triggered from three places:
+- Buttons inside the **🔨 Build** panel
+- The **Build** menu in the menu bar (also switches focus to the Build panel)
+- Keyboard shortcuts **Ctrl+B** (debug build) and **Ctrl+R** (run)
 
 | Button | Equivalent command |
 |---|---|
@@ -359,6 +376,9 @@ the full multi-panel host.
 | Middle-click / drag canvas | Pan the node-graph canvases |
 | Scroll wheel on canvas | Zoom in/out (Material, V-Logic canvases) |
 | `Enter` in the File → Project field | Open the project immediately |
+| **Ctrl+S** | Save the currently open file in the Game File Editor (if dirty) |
+| **Ctrl+B** | Trigger a debug build (opens the Build panel and starts `nova-forge.sh build`) |
+| **Ctrl+R** | Build and run the game client (opens the Build panel and starts `nova-forge.sh run`) |
 
 ---
 
