@@ -259,7 +259,7 @@ fn human_file_size(bytes: u64) -> String {
 /// Format a [`std::time::SystemTime`] as a local-time string
 /// (UTC ISO-8601 without sub-seconds, e.g. "2025-11-03 14:22:07 UTC").
 fn format_system_time(t: std::time::SystemTime) -> String {
-    use std::time::{Duration, UNIX_EPOCH};
+    use std::time::UNIX_EPOCH;
 
     let secs = match t.duration_since(UNIX_EPOCH) {
         Ok(d) => d.as_secs(),
@@ -273,7 +273,6 @@ fn format_system_time(t: std::time::SystemTime) -> String {
 
     let days = secs / 86_400;
     let (year, month, day) = days_to_ymd(days);
-    let _ = Duration::ZERO; // suppress unused import warning
     format!("{year:04}-{month:02}-{day:02} {h:02}:{m:02}:{s:02} UTC")
 }
 
