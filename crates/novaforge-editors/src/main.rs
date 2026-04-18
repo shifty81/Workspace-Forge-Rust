@@ -9,6 +9,7 @@
 use eframe::egui;
 use egui_dock::{DockArea, DockState, NodeIndex, TabViewer};
 use novaforge_ai::{StubAI, WorkspaceAI};
+use novaforge_build::BuildCommand;
 use novaforge_project::{AssetKind, WorkspaceManifest, MANIFEST_FILE};
 
 // Editor panel imports
@@ -16,6 +17,7 @@ use editor_animation::AnimationEditor;
 use editor_asset::AssetEditor;
 use editor_build::BuildToolPanel;
 use editor_data::DataEditor;
+use editor_gamefile::GameFileEditor;
 use editor_material::MaterialEditor;
 use editor_scene::SceneEditor;
 use editor_ui::UiEditorPanel;
@@ -31,11 +33,17 @@ fn main() -> eframe::Result<()> {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([1600.0, 960.0])
                 .with_title("NovaForge Workspace — Editor Suite"),
+            renderer: eframe::Renderer::Wgpu,
             ..Default::default()
         },
         Box::new(|cc| {
             // Apply dark visuals immediately so the very first frame is dark.
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            // Initialise the wgpu 3-D viewport pipeline if the wgpu backend is
+            // available (it always is with eframe's default renderer).
+            if let Some(render_state) = cc.wgpu_render_state.as_ref() {
+                editor_viewport::init_viewport_pipeline(render_state);
+            }
             Ok(Box::new(EditorApp::new()))
         }),
     )
@@ -58,6 +66,7 @@ pub enum Tab {
     Data,
     Build,
     AiTool,
+    GameFile,
 }
 
 impl Tab {
@@ -73,6 +82,7 @@ impl Tab {
             Tab::Data => "📋 Data",
             Tab::Build => "🔨 Build",
             Tab::AiTool => "🤖 AI Tool",
+            Tab::GameFile => "📝 File Editor",
         }
     }
 }
@@ -92,6 +102,7 @@ struct Panels {
     data: DataEditor,
     build: BuildToolPanel,
     ai_tool: AiToolPanel,
+    game_file: GameFileEditor,
 }
 
 impl Panels {
@@ -107,6 +118,7 @@ impl Panels {
             data: DataEditor::default(),
             build: BuildToolPanel::default(),
             ai_tool: AiToolPanel::new(),
+            game_file: GameFileEditor::default(),
         }
     }
 
@@ -146,6 +158,7 @@ impl TabViewer for EditorTabViewer<'_> {
             Tab::Data => p.data.ui(ui, ctx),
             Tab::Build => p.build.ui(ui, ctx),
             Tab::AiTool => p.ai_tool.ui(ui, ctx),
+            Tab::GameFile => p.game_file.ui(ui, ctx),
         }
     }
 
@@ -195,6 +208,8 @@ struct EditorApp {
     panel_ctx: PanelContext,
     status: String,
     theme: Theme,
+    /// Paths of the last 5 successfully opened projects (most-recent first).
+    recent_projects: Vec<String>,
 }
 
 impl EditorApp {
@@ -233,6 +248,9 @@ impl EditorApp {
         dock_state
             .main_surface_mut()
             .push_to_focused_leaf(Tab::Data);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::GameFile);
 
         Self {
             dock_state,
@@ -242,6 +260,7 @@ impl EditorApp {
             panel_ctx: PanelContext::default(),
             status: "No project loaded.".to_string(),
             theme: Theme::Dark,
+            recent_projects: Self::load_recent(),
         }
     }
 
@@ -257,7 +276,60 @@ impl EditorApp {
             Tab::Data,
             Tab::Build,
             Tab::AiTool,
+            Tab::GameFile,
         ]
+    }
+
+    // -----------------------------------------------------------------------
+    // Persistent recent projects
+    // -----------------------------------------------------------------------
+
+    /// Platform-specific path to the recent-projects config file:
+    /// - Linux/macOS: `$HOME/.config/novaforge-workspace/recent.toml`
+    /// - Windows:     `%APPDATA%\novaforge-workspace\recent.toml`
+    fn config_path() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        let base = std::env::var("APPDATA").ok().map(PathBuf::from);
+        #[cfg(not(target_os = "windows"))]
+        let base = std::env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join(".config"));
+        base.map(|b| b.join("novaforge-workspace").join("recent.toml"))
+    }
+
+    /// Load the recent-projects list from disk.  Returns an empty list on any
+    /// error (missing file, parse failure, …) so startup is never blocked.
+    fn load_recent() -> Vec<String> {
+        let Some(path) = Self::config_path() else {
+            return Vec::new();
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return Vec::new();
+        };
+        #[derive(serde::Deserialize)]
+        struct RecentFile {
+            recent: Vec<String>,
+        }
+        toml::from_str::<RecentFile>(&content)
+            .map(|f| f.recent)
+            .unwrap_or_default()
+    }
+
+    /// Persist the current recent-projects list to disk.  Silently ignores errors.
+    fn save_recent(&self) {
+        let Some(path) = Self::config_path() else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        #[derive(serde::Serialize)]
+        struct RecentFile<'a> {
+            recent: &'a [String],
+        }
+        if let Ok(content) = toml::to_string_pretty(&RecentFile { recent: &self.recent_projects }) {
+            let _ = std::fs::write(&path, content);
+        }
     }
 
     fn toggle_tab(&mut self, tab: Tab) {
@@ -287,12 +359,19 @@ impl EditorApp {
                     project_name: Some(manifest.project_name.clone()),
                     nova_forge_path: Some(manifest.nova_forge_path.clone()),
                     asset_root: Some(manifest.asset_root.clone()),
+                    selected_file: None,
                 };
                 self.status = format!("Project: {}", manifest.project_name);
                 self.panels
                     .workspace_browser
                     .set_root(manifest.asset_root.clone());
                 self.project = Some(manifest);
+                // Record in recent projects (most-recent first, no duplicates).
+                self.recent_projects.retain(|p| p != &path_str);
+                self.recent_projects.insert(0, path_str);
+                self.recent_projects.truncate(5);
+                // Persist to disk so the list survives restarts.
+                self.save_recent();
             }
             Err(e) => {
                 self.status = format!("Error: {e}");
@@ -315,6 +394,41 @@ impl EditorApp {
                                 .hint_text(format!("Path to {MANIFEST_FILE}"))
                                 .desired_width(260.0),
                         );
+                        if ui
+                            .button("📂 Browse…")
+                            .on_hover_text("Open a file browser to locate the workspace manifest")
+                            .clicked()
+                        {
+                            // Build a suggested starting directory from whatever the
+                            // user has already typed so the dialog opens nearby.
+                            let start_dir = {
+                                let p = std::path::Path::new(self.project_path_input.trim());
+                                if p.is_dir() {
+                                    Some(p.to_path_buf())
+                                } else {
+                                    p.parent().map(|d| d.to_path_buf())
+                                }
+                            };
+
+                            let mut dialog = rfd::FileDialog::new()
+                                .add_filter(
+                                    "NovaForge workspace manifest",
+                                    &["toml"],
+                                )
+                                .add_filter("All files", &["*"])
+                                .set_title("Open NovaForge Workspace");
+
+                            if let Some(dir) = start_dir {
+                                dialog = dialog.set_directory(dir);
+                            }
+
+                            if let Some(path) = dialog.pick_file() {
+                                self.project_path_input =
+                                    path.to_string_lossy().to_string();
+                                self.load_project();
+                                ui.close_menu();
+                            }
+                        }
                         if ui.button("Open").clicked() {
                             self.load_project();
                             ui.close_menu();
@@ -330,6 +444,33 @@ impl EditorApp {
                             }
                         }
                         ui.close_menu();
+                    }
+                    // Recent Projects submenu (only shown when there is history).
+                    if !self.recent_projects.is_empty() {
+                        ui.separator();
+                        ui.menu_button("Recent Projects", |ui| {
+                            // Collect the list to avoid a mutable + immutable borrow conflict.
+                            let recents = self.recent_projects.clone();
+                            let mut open_path: Option<String> = None;
+                            for path in &recents {
+                                // Shorten long paths for display using char-aware iteration.
+                                let chars: Vec<char> = path.chars().collect();
+                                let display = if chars.len() > 60 {
+                                    let tail: String = chars[chars.len() - 57..].iter().collect();
+                                    format!("…{tail}")
+                                } else {
+                                    path.clone()
+                                };
+                                if ui.button(display).on_hover_text(path).clicked() {
+                                    open_path = Some(path.clone());
+                                    ui.close_menu();
+                                }
+                            }
+                            if let Some(path) = open_path {
+                                self.project_path_input = path;
+                                self.load_project();
+                            }
+                        });
                     }
                     ui.separator();
                     if ui.button("Exit").clicked() {
@@ -357,19 +498,54 @@ impl EditorApp {
                     ui.separator();
                     if ui.button("Reset Layout").clicked() {
                         let theme = self.theme;
+                        let recents = self.recent_projects.clone();
                         *self = EditorApp::new();
                         self.theme = theme;
+                        self.recent_projects = recents;
                         ui.close_menu();
                     }
                 });
 
                 ui.menu_button("Build", |ui| {
-                    if ui.button("🔨 Build (debug)").clicked() {
+                    let nova_path = self.panel_ctx.nova_forge_path.clone();
+                    if ui
+                        .button("🔨 Build (debug)")
+                        .on_hover_text("cargo build  [Ctrl+B]")
+                        .clicked()
+                    {
                         self.ensure_tab_open(Tab::Build);
+                        self.panels
+                            .build
+                            .trigger(BuildCommand::Build, nova_path.as_ref());
                         ui.close_menu();
                     }
-                    if ui.button("🚀 Build (release)").clicked() {
+                    if ui
+                        .button("🚀 Build (release)")
+                        .on_hover_text("cargo build --release")
+                        .clicked()
+                    {
                         self.ensure_tab_open(Tab::Build);
+                        self.panels
+                            .build
+                            .trigger(BuildCommand::Release, nova_path.as_ref());
+                        ui.close_menu();
+                    }
+                    if ui
+                        .button("▶ Run")
+                        .on_hover_text("Build and run the client  [Ctrl+R]")
+                        .clicked()
+                    {
+                        self.ensure_tab_open(Tab::Build);
+                        self.panels
+                            .build
+                            .trigger(BuildCommand::Run, nova_path.as_ref());
+                        ui.close_menu();
+                    }
+                    if ui.button("🧪 Test").on_hover_text("cargo test").clicked() {
+                        self.ensure_tab_open(Tab::Build);
+                        self.panels
+                            .build
+                            .trigger(BuildCommand::Test, nova_path.as_ref());
                         ui.close_menu();
                     }
                 });
@@ -425,6 +601,47 @@ impl eframe::App for EditorApp {
         // Background updates (build log polling, animation playhead)
         self.panels.background_update_all();
 
+        // Propagate workspace browser file selection to the panel context so
+        // the Game File Editor can auto-open the chosen file.
+        self.panel_ctx.selected_file =
+            self.panels.workspace_browser.selected_absolute_path();
+
+        // If the browser context menu requested "Open in File Editor", ensure
+        // that tab is visible so the user sees the file immediately.
+        if self.panels.workspace_browser.open_file_request.take().is_some() {
+            self.ensure_tab_open(Tab::GameFile);
+        }
+
+        // ── Keyboard shortcuts ────────────────────────────────────────────────
+        // Ctrl+S — save the currently open file in the Game File Editor.
+        // Ctrl+B — trigger a debug build.
+        // Ctrl+R — run the game client.
+        let (ctrl_s, ctrl_b, ctrl_r) = ctx.input(|i| {
+            let ctrl = i.modifiers.ctrl || i.modifiers.mac_cmd;
+            (
+                ctrl && i.key_pressed(egui::Key::S),
+                ctrl && i.key_pressed(egui::Key::B),
+                ctrl && i.key_pressed(egui::Key::R),
+            )
+        });
+        if ctrl_s {
+            self.panels.game_file.save_if_dirty();
+        }
+        if ctrl_b {
+            let nova_path = self.panel_ctx.nova_forge_path.clone();
+            self.ensure_tab_open(Tab::Build);
+            self.panels
+                .build
+                .trigger(BuildCommand::Build, nova_path.as_ref());
+        }
+        if ctrl_r {
+            let nova_path = self.panel_ctx.nova_forge_path.clone();
+            self.ensure_tab_open(Tab::Build);
+            self.panels
+                .build
+                .trigger(BuildCommand::Run, nova_path.as_ref());
+        }
+
         self.show_menu_bar(ctx);
         self.show_status_bar(ctx);
 
@@ -451,6 +668,9 @@ struct WorkspaceBrowser {
     selected: Option<usize>,
     /// Relative paths of directories that are currently collapsed.
     collapsed: std::collections::HashSet<String>,
+    /// Set by the context menu when the user chooses "Open in File Editor".
+    /// The main app reads and clears this every frame.
+    open_file_request: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -472,6 +692,19 @@ impl WorkspaceBrowser {
         // Reset collapse state — paths are relative to the root, so stale
         // collapsed entries from a previous project would be meaningless.
         self.collapsed.clear();
+    }
+
+    /// Returns the absolute path of the currently selected **file** entry,
+    /// or `None` when nothing is selected or a directory is selected.
+    fn selected_absolute_path(&self) -> Option<PathBuf> {
+        let root = self.root.as_ref()?;
+        let idx = self.selected?;
+        let entry = self.entries.get(idx)?;
+        if entry.is_dir {
+            return None;
+        }
+        // entry.path uses forward slashes; join handles cross-platform.
+        Some(root.join(entry.path.replace('/', std::path::MAIN_SEPARATOR_STR)))
     }
 
     /// Returns `true` if any ancestor directory of `path` is in the collapsed
@@ -598,13 +831,44 @@ impl EditorPanel for WorkspaceBrowser {
                         }
                     });
                 } else {
+                    let label = format!("{} {}", entry.icon, entry.display);
+                    let selected = self.selected == Some(i);
+
+                    // Build the absolute path once for the context menu.
+                    let abs_path = self.root.as_ref().map(|r| {
+                        r.join(entry.path.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    });
+
                     ui.horizontal(|ui| {
                         ui.add_space(indent);
-                        let label = format!("{} {}", entry.icon, entry.display);
-                        let selected = self.selected == Some(i);
-                        if ui.selectable_label(selected, label).clicked() {
+                        let response = ui.selectable_label(selected, label);
+                        if response.clicked() {
                             new_selected = Some(i);
                         }
+                        // Right-click context menu for file entries.
+                        response.context_menu(|ui| {
+                            if ui
+                                .button("📝 Open in File Editor")
+                                .on_hover_text("Open this file in the Game File Editor panel")
+                                .clicked()
+                            {
+                                new_selected = Some(i);
+                                if let Some(ref p) = abs_path {
+                                    self.open_file_request = Some(p.clone());
+                                }
+                                ui.close_menu();
+                            }
+                            if ui
+                                .button("📋 Copy Path")
+                                .on_hover_text("Copy the absolute file path to the clipboard")
+                                .clicked()
+                            {
+                                if let Some(ref p) = abs_path {
+                                    ui.ctx().copy_text(p.display().to_string());
+                                }
+                                ui.close_menu();
+                            }
+                        });
                     });
                 }
             }

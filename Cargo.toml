@@ -15,6 +15,8 @@ members = [
     "crates/editors/editor-animation",
     "crates/editors/editor-data",
     "crates/editors/editor-build",
+    "crates/editors/editor-gamefile",
+    "crates/editors/editor-viewport",
 ]
 
 [workspace.package]
@@ -27,8 +29,14 @@ repository  = "https://github.com/shifty81/Workspace-Forge-Rust"
 [workspace.dependencies]
 # UI
 egui      = "0.31"
-eframe    = "0.31"
+eframe    = { version = "0.31", features = ["wgpu"] }
 egui_dock = "0.16"
+egui-wgpu = "0.31"
+rfd       = "0.15"
+
+# GPU
+wgpu     = "24"
+bytemuck = { version = "1", features = ["derive"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -55,6 +63,8 @@ editor-ui        = { path = "crates/editors/editor-ui" }
 editor-animation = { path = "crates/editors/editor-animation" }
 editor-data      = { path = "crates/editors/editor-data" }
 editor-build     = { path = "crates/editors/editor-build" }
+editor-gamefile  = { path = "crates/editors/editor-gamefile" }
+editor-viewport  = { path = "crates/editors/editor-viewport" }
 
 [profile.dev]
 opt-level = 1

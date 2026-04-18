@@ -1,14 +1,36 @@
 //! Scene / World Editor panel for NovaForge Workspace.
 
 use egui::Color32;
+use editor_viewport::CameraState;
 use novaforge_ui::{EditorPanel, PanelContext};
 use serde::{Deserialize, Serialize};
+use std::f32::consts::PI;
 use std::path::PathBuf;
 
 /// Width of the entity list sidebar in pixels.
 const ENTITY_LIST_WIDTH: f32 = 160.0;
 /// Height reserved for the transform inspector below the viewport.
 const INSPECTOR_HEIGHT: f32 = 130.0;
+
+// ---------------------------------------------------------------------------
+// Pie menu constants
+// ---------------------------------------------------------------------------
+
+/// Outer radius of the pie menu (px).
+const PIE_RADIUS: f32 = 88.0;
+/// Inner dead-zone radius — hovering here does not activate any slice.
+const PIE_INNER_R: f32 = 22.0;
+/// Number of slices.
+const PIE_N: usize = 6;
+/// (icon, label) pairs for each slice, arranged clockwise from the top.
+const PIE_ITEMS: [(&str, &str); PIE_N] = [
+    ("⬆", "Translate"),
+    ("↻", "Rotate"),
+    ("⤢", "Scale"),
+    ("＋", "Entity"),
+    ("⧉", "Dup"),
+    ("🗑", "Delete"),
+];
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GizmoMode {
     #[default]
@@ -45,10 +67,9 @@ struct SceneFile {
 
 /// Scene Editor panel.
 ///
-/// Displays a 3-D viewport placeholder and a basic entity list / inspector.
+/// Displays a wgpu-rendered 3-D viewport (grid + axis lines, orbit camera)
+/// alongside a basic entity list and transform inspector.
 /// Entities can be saved to and loaded from `<asset_root>/scenes/scene.toml`.
-/// Full rendering will be wired in when Nova-Forge's render pipeline is
-/// integrated.
 pub struct SceneEditor {
     gizmo_mode: GizmoMode,
     entities: Vec<SceneEntity>,
@@ -57,6 +78,14 @@ pub struct SceneEditor {
     entity_counter: u32,
     /// Status message shown below the toolbar (save/load feedback).
     scene_status: String,
+    /// When `Some`, the pie menu is displayed at this viewport position.
+    pie_menu_pos: Option<egui::Pos2>,
+    /// Index of the pie slice currently under the pointer, if any.
+    pie_hovered: Option<usize>,
+    /// Text typed in the entity-list search box.
+    entity_filter: String,
+    /// Orbit camera state for the 3-D viewport.
+    camera: CameraState,
 }
 
 impl Default for SceneEditor {
@@ -75,6 +104,10 @@ impl Default for SceneEditor {
             selected: None,
             entity_counter: 2,
             scene_status: String::new(),
+            pie_menu_pos: None,
+            pie_hovered: None,
+            entity_filter: String::new(),
+            camera: CameraState::default(),
         }
     }
 }
@@ -89,6 +122,167 @@ impl SceneEditor {
         ctx.asset_root
             .as_ref()
             .map(|r| r.join("scenes").join("scene.toml"))
+    }
+
+    // -----------------------------------------------------------------------
+    // Pie menu helpers
+    // -----------------------------------------------------------------------
+
+    /// Return the slice index (0..PIE_N) that the pointer is hovering, or
+    /// `None` when the pointer is in the dead-zone or outside the menu.
+    fn pie_slice_at(center: egui::Pos2, pos: egui::Pos2) -> Option<usize> {
+        let delta = pos - center;
+        let dist = delta.length();
+        if !(PIE_INNER_R..=PIE_RADIUS + 6.0).contains(&dist) {
+            return None;
+        }
+        // Angle measured from the top (−π/2) going clockwise.
+        let angle = delta.y.atan2(delta.x) + PI / 2.0;
+        let normalized = if angle < 0.0 { angle + 2.0 * PI } else { angle };
+        let slice = 2.0 * PI / PIE_N as f32;
+        Some((normalized / slice) as usize % PIE_N)
+    }
+
+    /// Execute the action corresponding to pie slice `idx`.
+    fn execute_pie_action(&mut self, idx: usize) {
+        match idx {
+            0 => self.gizmo_mode = GizmoMode::Translate,
+            1 => self.gizmo_mode = GizmoMode::Rotate,
+            2 => self.gizmo_mode = GizmoMode::Scale,
+            3 => {
+                // Add entity
+                self.entity_counter += 1;
+                let name = format!("Entity {}", self.entity_counter);
+                self.entities.push(SceneEntity::new(name));
+                self.selected = Some(self.entities.len() - 1);
+            }
+            4 => {
+                // Duplicate selected
+                if let Some(idx) = self.selected {
+                    if let Some(original) = self.entities.get(idx) {
+                        let mut copy = original.clone();
+                        copy.name = format!("Copy of {}", original.name);
+                        copy.position[0] += 1.0;
+                        self.entities.push(copy);
+                        self.selected = Some(self.entities.len() - 1);
+                    }
+                }
+            }
+            5 => {
+                // Delete selected
+                if let Some(idx) = self.selected {
+                    self.entities.remove(idx);
+                    self.selected = if self.entities.is_empty() {
+                        None
+                    } else {
+                        Some(idx.min(self.entities.len() - 1))
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Draw the pie menu at `center` using `painter`.
+    fn draw_pie_menu(
+        painter: &egui::Painter,
+        center: egui::Pos2,
+        hovered: Option<usize>,
+        has_selection: bool,
+    ) {
+        // Outer shadow / backdrop
+        painter.circle_filled(
+            center,
+            PIE_RADIUS + 8.0,
+            Color32::from_rgba_premultiplied(0, 0, 0, 160),
+        );
+
+        let slice_angle = 2.0 * PI / PIE_N as f32;
+
+        for (i, &(icon, label)) in PIE_ITEMS.iter().enumerate() {
+            // Base colour per slice
+            let base = pie_slice_color(i, has_selection);
+            let is_hov = hovered == Some(i);
+
+            let fill = if is_hov {
+                // Brighten on hover
+                Color32::from_rgba_premultiplied(
+                    (base.r() as u16 + 70).min(255) as u8,
+                    (base.g() as u16 + 70).min(255) as u8,
+                    (base.b() as u16 + 70).min(255) as u8,
+                    230,
+                )
+            } else {
+                Color32::from_rgba_premultiplied(base.r(), base.g(), base.b(), 200)
+            };
+
+            // Wedge polygon (convex: 60° arc from center — valid for egui)
+            // Start angle measured from the top, clockwise.
+            let start_a = i as f32 * slice_angle - PI / 2.0;
+            let end_a = start_a + slice_angle;
+            const N_SEG: usize = 10;
+            let mut pts = Vec::with_capacity(N_SEG + 2);
+            pts.push(center);
+            for s in 0..=N_SEG {
+                let t = s as f32 / N_SEG as f32;
+                let a = start_a + (end_a - start_a) * t;
+                pts.push(center + egui::vec2(a.cos() * PIE_RADIUS, a.sin() * PIE_RADIUS));
+            }
+
+            let stroke_color = if is_hov {
+                Color32::WHITE
+            } else {
+                Color32::from_rgb(60, 60, 75)
+            };
+            painter.add(egui::Shape::convex_polygon(
+                pts,
+                fill,
+                egui::Stroke::new(if is_hov { 2.0 } else { 1.0 }, stroke_color),
+            ));
+
+            // Icon + label inside the slice
+            let mid_a = start_a + slice_angle / 2.0;
+            let mid_r = (PIE_INNER_R + PIE_RADIUS) / 2.0;
+            let label_pos = center + egui::vec2(mid_a.cos() * mid_r, mid_a.sin() * mid_r);
+
+            painter.text(
+                label_pos - egui::vec2(0.0, 7.0),
+                egui::Align2::CENTER_CENTER,
+                icon,
+                egui::FontId::proportional(15.0),
+                Color32::WHITE,
+            );
+            painter.text(
+                label_pos + egui::vec2(0.0, 8.0),
+                egui::Align2::CENTER_CENTER,
+                label,
+                egui::FontId::proportional(8.5),
+                if is_hov {
+                    Color32::WHITE
+                } else {
+                    Color32::from_rgb(210, 210, 220)
+                },
+            );
+        }
+
+        // Centre cancel circle
+        painter.circle_filled(
+            center,
+            PIE_INNER_R,
+            Color32::from_rgba_premultiplied(25, 25, 38, 240),
+        );
+        painter.circle_stroke(
+            center,
+            PIE_INNER_R,
+            egui::Stroke::new(1.0, Color32::from_rgb(90, 90, 110)),
+        );
+        painter.text(
+            center,
+            egui::Align2::CENTER_CENTER,
+            "✕",
+            egui::FontId::proportional(13.0),
+            Color32::from_rgb(170, 170, 190),
+        );
     }
 
     fn save_scene(&mut self, ctx: &PanelContext) {
@@ -197,6 +391,22 @@ impl EditorPanel for SceneEditor {
                     };
                 }
             }
+            if ui
+                .add_enabled(delete_enabled, egui::Button::new("⧉ Duplicate"))
+                .on_hover_text("Clone the selected entity")
+                .clicked()
+            {
+                if let Some(idx) = self.selected {
+                    if let Some(original) = self.entities.get(idx) {
+                        let mut copy = original.clone();
+                        copy.name = format!("Copy of {}", original.name);
+                        // Offset slightly so the duplicate is visually distinct.
+                        copy.position[0] += 1.0;
+                        self.entities.push(copy);
+                        self.selected = Some(self.entities.len() - 1);
+                    }
+                }
+            }
             ui.separator();
             if ui.button("💾 Save").on_hover_text("Save scene to <asset_root>/scenes/scene.toml").clicked() {
                 self.save_scene(ctx);
@@ -225,11 +435,29 @@ impl EditorPanel for SceneEditor {
                 ui.set_width(ENTITY_LIST_WIDTH);
                 ui.strong("Entities");
                 ui.separator();
+                // Search box
+                ui.horizontal(|ui| {
+                    ui.label("🔍");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.entity_filter)
+                            .hint_text("Filter…")
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+                ui.separator();
+                let filter_lower = self.entity_filter.to_lowercase();
                 egui::ScrollArea::vertical()
                     .id_salt("entity_list")
                     .max_height(available.y - 32.0)                    .show(ui, |ui| {
                         let mut new_selected = self.selected;
+                        let mut visible_count = 0usize;
                         for (i, entity) in self.entities.iter().enumerate() {
+                            if !filter_lower.is_empty()
+                                && !entity.name.to_lowercase().contains(&filter_lower)
+                            {
+                                continue;
+                            }
+                            visible_count += 1;
                             let selected = self.selected == Some(i);
                             if ui
                                 .selectable_label(selected, format!("🔷 {}", entity.name))
@@ -241,6 +469,12 @@ impl EditorPanel for SceneEditor {
                         if self.entities.is_empty() {
                             ui.label(
                                 egui::RichText::new("No entities.\nPress ＋ to add one.")
+                                    .italics()
+                                    .color(Color32::from_rgb(120, 120, 140)),
+                            );
+                        } else if visible_count == 0 {
+                            ui.label(
+                                egui::RichText::new("No matches.")
                                     .italics()
                                     .color(Color32::from_rgb(120, 120, 140)),
                             );
@@ -256,40 +490,91 @@ impl EditorPanel for SceneEditor {
                 let right_w = available.x - ENTITY_LIST_WIDTH - 8.0;
                 let viewport_h = (available.y - INSPECTOR_HEIGHT - 12.0).max(60.0);
 
-                // Viewport placeholder
-                let (rect, _response) = ui.allocate_exact_size(
+                // Allocate the viewport rect and capture mouse input.
+                let (rect, response) = ui.allocate_exact_size(
                     egui::vec2(right_w, viewport_h),
                     egui::Sense::click_and_drag(),
                 );
+
+                // ── Camera controls ───────────────────────────────────────────
+                // Left-drag → orbit (yaw / pitch).
+                if response.dragged_by(egui::PointerButton::Primary)
+                    && self.pie_menu_pos.is_none()
+                {
+                    let delta = response.drag_delta();
+                    self.camera.yaw -= delta.x * 0.005;
+                    self.camera.pitch =
+                        (self.camera.pitch + delta.y * 0.005).clamp(-1.40, 1.40);
+                    ui.ctx().request_repaint();
+                }
+                // Middle-drag → pan (translate the look-at center in the
+                // camera's local XZ plane).
+                if response.dragged_by(egui::PointerButton::Middle) {
+                    let delta = response.drag_delta();
+                    let (sy, cy) = self.camera.yaw.sin_cos();
+                    let scale = self.camera.distance * 0.002;
+                    self.camera.center[0] -= (cy * delta.x - sy * delta.y) * scale;
+                    self.camera.center[2] += (sy * delta.x + cy * delta.y) * scale;
+                    ui.ctx().request_repaint();
+                }
+                // Scroll wheel → zoom (change orbit distance).
+                if response.contains_pointer() {
+                    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+                    if scroll.abs() > 0.01 {
+                        self.camera.distance =
+                            (self.camera.distance * (1.0 - scroll * 0.003)).clamp(0.5, 200.0);
+                        ui.ctx().request_repaint();
+                    }
+                }
+
+                // ── Draw background + border via egui painter ─────────────────
                 let painter = ui.painter();
-                painter.rect_filled(rect, 4.0, Color32::from_rgb(22, 22, 28));
+                painter.rect_filled(rect, 4.0, Color32::from_rgb(16, 16, 20));
                 painter.rect_stroke(
                     rect,
                     4.0,
                     egui::Stroke::new(1.0, Color32::from_rgb(55, 55, 68)),
                     egui::StrokeKind::Middle,
                 );
-                for i in 1..8 {
-                    let x = rect.left() + rect.width() * (i as f32 / 8.0);
-                    painter.line_segment(
-                        [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                        egui::Stroke::new(0.5, Color32::from_rgb(40, 40, 50)),
-                    );
+
+                // ── Submit the wgpu 3-D grid paint callback ───────────────────
+                editor_viewport::paint_viewport(painter, rect, self.camera);
+
+                // ── Pie menu ─────────────────────────────────────────────────
+                // Open on right-click inside the viewport.
+                if response.secondary_clicked() {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        self.pie_menu_pos = Some(pos);
+                        self.pie_hovered = None;
+                    }
                 }
-                for i in 1..6 {
-                    let y = rect.top() + rect.height() * (i as f32 / 6.0);
-                    painter.line_segment(
-                        [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                        egui::Stroke::new(0.5, Color32::from_rgb(40, 40, 50)),
-                    );
+
+                if let Some(center) = self.pie_menu_pos {
+                    // Update hover slice from current pointer position.
+                    let pointer = ui.input(|i| i.pointer.latest_pos());
+                    self.pie_hovered = pointer.and_then(|p| Self::pie_slice_at(center, p));
+
+                    // Draw the pie menu on top of the viewport.
+                    Self::draw_pie_menu(painter, center, self.pie_hovered, self.selected.is_some());
+
+                    // Primary click: execute hovered action and close.
+                    if response.clicked() {
+                        if let Some(slice) = self.pie_hovered {
+                            self.execute_pie_action(slice);
+                        }
+                        self.pie_menu_pos = None;
+                        self.pie_hovered = None;
+                    }
+
+                    // Escape closes the menu.
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        self.pie_menu_pos = None;
+                        self.pie_hovered = None;
+                    }
+
+                    // Request repaint so hover highlight stays responsive.
+                    ui.ctx().request_repaint();
                 }
-                painter.text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "🌐  3-D Viewport\nRendering integration pending",
-                    egui::FontId::proportional(13.0),
-                    Color32::from_rgb(90, 90, 115),
-                );
 
                 // Inspector
                 ui.separator();
@@ -344,5 +629,37 @@ impl EditorPanel for SceneEditor {
                 }
             });
         });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pie menu colour helper
+// ---------------------------------------------------------------------------
+
+/// Returns the fill colour for pie slice `i` (0..PIE_N).
+/// When `has_selection` is false, the Delete/Dup slices are dimmed.
+fn pie_slice_color(i: usize, has_selection: bool) -> Color32 {
+    match i {
+        0 => Color32::from_rgb(45, 85, 165),  // Translate – blue
+        1 => Color32::from_rgb(40, 140, 80),  // Rotate    – green
+        2 => Color32::from_rgb(100, 55, 160), // Scale     – purple
+        3 => Color32::from_rgb(35, 130, 145), // Add       – teal
+        4 => {
+            // Duplicate — dimmed when nothing selected
+            if has_selection {
+                Color32::from_rgb(160, 100, 35)
+            } else {
+                Color32::from_rgb(70, 60, 45)
+            }
+        }
+        5 => {
+            // Delete — dimmed when nothing selected
+            if has_selection {
+                Color32::from_rgb(165, 45, 45)
+            } else {
+                Color32::from_rgb(70, 42, 42)
+            }
+        }
+        _ => Color32::from_rgb(60, 60, 70),
     }
 }

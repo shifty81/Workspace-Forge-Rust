@@ -1,0 +1,21 @@
+[package]
+name        = "editor-gamefile"
+description = "Game File Editor panel for NovaForge Workspace"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+authors.workspace    = true
+repository.workspace = true
+
+[features]
+standalone = ["eframe"]
+
+[dependencies]
+egui         = { workspace = true }
+novaforge-ui = { workspace = true }
+eframe       = { workspace = true, optional = true }
+
+[[bin]]
+name              = "editor-gamefile"
+path              = "src/main.rs"
+required-features = ["standalone"]

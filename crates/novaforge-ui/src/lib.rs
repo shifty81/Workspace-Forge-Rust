@@ -12,6 +12,9 @@ pub struct PanelContext {
     pub nova_forge_path: Option<std::path::PathBuf>,
     /// Absolute path to the asset root directory, or `None`.
     pub asset_root: Option<std::path::PathBuf>,
+    /// Absolute path to the file currently selected in the Workspace Browser,
+    /// or `None` when nothing is selected.  Updated every frame.
+    pub selected_file: Option<std::path::PathBuf>,
 }
 
 /// Every editor panel implements this trait.

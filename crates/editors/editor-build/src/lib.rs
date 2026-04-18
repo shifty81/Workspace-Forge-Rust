@@ -61,6 +61,12 @@ impl Default for BuildToolPanel {
 }
 
 impl BuildToolPanel {
+    /// Public entry point so the menu bar (or keyboard shortcuts) can trigger a
+    /// build without the user having to switch to the Build panel first.
+    pub fn trigger(&mut self, cmd: BuildCommand, nova_forge_path: Option<&PathBuf>) {
+        self.spawn_command(cmd, nova_forge_path);
+    }
+
     fn spawn_command(&mut self, cmd: BuildCommand, nova_forge_path: Option<&PathBuf>) {
         match nova_forge_path {
             Some(path) => {
