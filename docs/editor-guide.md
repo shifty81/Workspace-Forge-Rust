@@ -51,7 +51,7 @@ The default layout has three zones:
 | Zone | Panels |
 |---|---|
 | **Left sidebar** | 📁 Workspace Browser |
-| **Centre (tabbed)** | 🌐 Scene · 🖼 Assets · 🎨 Material · 🔗 V-Logic · 📐 UI · 🎬 Animation · 📋 Data |
+| **Centre (tabbed)** | 🌐 Scene · 🖼 Assets · 🎨 Material · 🔗 V-Logic · 📐 UI · 🎬 Animation · 📋 Data · 📝 File Editor |
 | **Bottom strip** | 🔨 Build · 🤖 AI Tool |
 
 Every tab can be **dragged** to a different location, **closed** (View menu →
@@ -103,6 +103,21 @@ A world/scene editor with an entity list and transform inspector.
 
 > The 3-D viewport shows a grid placeholder.  Full rendering integration with
 > the Nova-Forge engine is a future milestone.
+>
+> **Pie menu** — right-click anywhere inside the viewport to open a radial
+> action menu:
+>
+> | Slice | Action |
+> |---|---|
+> | ⬆ Translate | Switch gizmo to Translate mode |
+> | ↻ Rotate | Switch gizmo to Rotate mode |
+> | ⤢ Scale | Switch gizmo to Scale mode |
+> | ＋ Entity | Add a new entity |
+> | ⧉ Dup | Duplicate the selected entity (dimmed when nothing selected) |
+> | 🗑 Delete | Delete the selected entity (dimmed when nothing selected) |
+>
+> Hover over a slice to highlight it, then **left-click** to execute.
+> Click the central **✕** or press **Escape** to cancel without acting.
 
 ---
 
@@ -251,6 +266,28 @@ Columns: **ID** · **Name** · **Type** · **Value** · **Tags** (comma-separate
 
 ---
 
+### 📝 Game File Editor
+
+An inline text editor for Nova-Forge source and configuration files.  Any text
+file selected in the **📁 Workspace Browser** is automatically opened here if
+its extension is recognised as plain-text.
+
+Supported extensions: `.toml`, `.ron`, `.json`, `.yaml`, `.yml`, `.lua`, `.txt`,
+`.md`, `.conf`, `.cfg`, `.ini`, `.glsl`, `.wgsl`, `.vert`, `.frag`, `.comp`,
+`.hlsl`, `.py`, `.sh`, `.bat`, `.rs`.
+
+| Control | Description |
+|---|---|
+| File name badge | Shows `📄 filename` (or `✏ filename *` when unsaved changes exist) |
+| **💾 Save** | Write the buffer to disk (enabled only when there are unsaved edits) |
+| **✖ Close** | Close the file (unsaved changes are discarded without warning) |
+| Editor area | Monospace text editor; any keystroke marks the file as dirty |
+
+> The editor stores one buffer at a time.  Opening a second file from the
+> Workspace Browser replaces the current buffer.
+
+---
+
 ### 🔨 Build Tool
 
 Runs `nova-forge.sh` commands and streams live log output.
@@ -304,6 +341,7 @@ cargo run -p editor-ui        --features standalone
 cargo run -p editor-animation --features standalone
 cargo run -p editor-data      --features standalone
 cargo run -p editor-build     --features standalone
+cargo run -p editor-gamefile  --features standalone
 ```
 
 Standalone windows are useful when you want to focus on a single tool without

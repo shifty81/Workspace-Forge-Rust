@@ -875,6 +875,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "editor-gamefile"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "novaforge-ui",
+]
+
+[[package]]
 name = "editor-material"
 version = "0.1.0"
 dependencies = [
@@ -2054,6 +2063,7 @@ dependencies = [
  "editor-asset",
  "editor-build",
  "editor-data",
+ "editor-gamefile",
  "editor-material",
  "editor-scene",
  "editor-ui",

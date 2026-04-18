@@ -16,6 +16,7 @@ use editor_animation::AnimationEditor;
 use editor_asset::AssetEditor;
 use editor_build::BuildToolPanel;
 use editor_data::DataEditor;
+use editor_gamefile::GameFileEditor;
 use editor_material::MaterialEditor;
 use editor_scene::SceneEditor;
 use editor_ui::UiEditorPanel;
@@ -58,6 +59,7 @@ pub enum Tab {
     Data,
     Build,
     AiTool,
+    GameFile,
 }
 
 impl Tab {
@@ -73,6 +75,7 @@ impl Tab {
             Tab::Data => "📋 Data",
             Tab::Build => "🔨 Build",
             Tab::AiTool => "🤖 AI Tool",
+            Tab::GameFile => "📝 File Editor",
         }
     }
 }
@@ -92,6 +95,7 @@ struct Panels {
     data: DataEditor,
     build: BuildToolPanel,
     ai_tool: AiToolPanel,
+    game_file: GameFileEditor,
 }
 
 impl Panels {
@@ -107,6 +111,7 @@ impl Panels {
             data: DataEditor::default(),
             build: BuildToolPanel::default(),
             ai_tool: AiToolPanel::new(),
+            game_file: GameFileEditor::default(),
         }
     }
 
@@ -146,6 +151,7 @@ impl TabViewer for EditorTabViewer<'_> {
             Tab::Data => p.data.ui(ui, ctx),
             Tab::Build => p.build.ui(ui, ctx),
             Tab::AiTool => p.ai_tool.ui(ui, ctx),
+            Tab::GameFile => p.game_file.ui(ui, ctx),
         }
     }
 
@@ -233,6 +239,9 @@ impl EditorApp {
         dock_state
             .main_surface_mut()
             .push_to_focused_leaf(Tab::Data);
+        dock_state
+            .main_surface_mut()
+            .push_to_focused_leaf(Tab::GameFile);
 
         Self {
             dock_state,
@@ -257,6 +266,7 @@ impl EditorApp {
             Tab::Data,
             Tab::Build,
             Tab::AiTool,
+            Tab::GameFile,
         ]
     }
 
@@ -287,6 +297,7 @@ impl EditorApp {
                     project_name: Some(manifest.project_name.clone()),
                     nova_forge_path: Some(manifest.nova_forge_path.clone()),
                     asset_root: Some(manifest.asset_root.clone()),
+                    selected_file: None,
                 };
                 self.status = format!("Project: {}", manifest.project_name);
                 self.panels
@@ -425,6 +436,11 @@ impl eframe::App for EditorApp {
         // Background updates (build log polling, animation playhead)
         self.panels.background_update_all();
 
+        // Propagate workspace browser file selection to the panel context so
+        // the Game File Editor can auto-open the chosen file.
+        self.panel_ctx.selected_file =
+            self.panels.workspace_browser.selected_absolute_path();
+
         self.show_menu_bar(ctx);
         self.show_status_bar(ctx);
 
@@ -472,6 +488,19 @@ impl WorkspaceBrowser {
         // Reset collapse state — paths are relative to the root, so stale
         // collapsed entries from a previous project would be meaningless.
         self.collapsed.clear();
+    }
+
+    /// Returns the absolute path of the currently selected **file** entry,
+    /// or `None` when nothing is selected or a directory is selected.
+    fn selected_absolute_path(&self) -> Option<PathBuf> {
+        let root = self.root.as_ref()?;
+        let idx = self.selected?;
+        let entry = self.entries.get(idx)?;
+        if entry.is_dir {
+            return None;
+        }
+        // entry.path uses forward slashes; join handles cross-platform.
+        Some(root.join(entry.path.replace('/', std::path::MAIN_SEPARATOR_STR)))
     }
 
     /// Returns `true` if any ancestor directory of `path` is in the collapsed
