@@ -29,6 +29,7 @@ editor-animation  = { workspace = true }
 editor-data       = { workspace = true }
 editor-build      = { workspace = true }
 editor-gamefile  = { workspace = true }
+editor-viewport  = { workspace = true }
 rfd              = { workspace = true }
 serde            = { workspace = true }
 toml             = { workspace = true }

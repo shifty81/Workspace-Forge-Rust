@@ -33,11 +33,17 @@ fn main() -> eframe::Result<()> {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([1600.0, 960.0])
                 .with_title("NovaForge Workspace — Editor Suite"),
+            renderer: eframe::Renderer::Wgpu,
             ..Default::default()
         },
         Box::new(|cc| {
             // Apply dark visuals immediately so the very first frame is dark.
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            // Initialise the wgpu 3-D viewport pipeline if the wgpu backend is
+            // available (it always is with eframe's default renderer).
+            if let Some(render_state) = cc.wgpu_render_state.as_ref() {
+                editor_viewport::init_viewport_pipeline(render_state);
+            }
             Ok(Box::new(EditorApp::new()))
         }),
     )

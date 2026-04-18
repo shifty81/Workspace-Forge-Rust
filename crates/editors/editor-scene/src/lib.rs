@@ -1,6 +1,7 @@
 //! Scene / World Editor panel for NovaForge Workspace.
 
 use egui::Color32;
+use editor_viewport::CameraState;
 use novaforge_ui::{EditorPanel, PanelContext};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -66,10 +67,9 @@ struct SceneFile {
 
 /// Scene Editor panel.
 ///
-/// Displays a 3-D viewport placeholder and a basic entity list / inspector.
+/// Displays a wgpu-rendered 3-D viewport (grid + axis lines, orbit camera)
+/// alongside a basic entity list and transform inspector.
 /// Entities can be saved to and loaded from `<asset_root>/scenes/scene.toml`.
-/// Full rendering will be wired in when Nova-Forge's render pipeline is
-/// integrated.
 pub struct SceneEditor {
     gizmo_mode: GizmoMode,
     entities: Vec<SceneEntity>,
@@ -84,6 +84,8 @@ pub struct SceneEditor {
     pie_hovered: Option<usize>,
     /// Text typed in the entity-list search box.
     entity_filter: String,
+    /// Orbit camera state for the 3-D viewport.
+    camera: CameraState,
 }
 
 impl Default for SceneEditor {
@@ -105,6 +107,7 @@ impl Default for SceneEditor {
             pie_menu_pos: None,
             pie_hovered: None,
             entity_filter: String::new(),
+            camera: CameraState::default(),
         }
     }
 }
@@ -487,43 +490,55 @@ impl EditorPanel for SceneEditor {
                 let right_w = available.x - ENTITY_LIST_WIDTH - 8.0;
                 let viewport_h = (available.y - INSPECTOR_HEIGHT - 12.0).max(60.0);
 
-                // Viewport placeholder — right-click opens the pie menu.
+                // Allocate the viewport rect and capture mouse input.
                 let (rect, response) = ui.allocate_exact_size(
                     egui::vec2(right_w, viewport_h),
                     egui::Sense::click_and_drag(),
                 );
+
+                // ── Camera controls ───────────────────────────────────────────
+                // Left-drag → orbit (yaw / pitch).
+                if response.dragged_by(egui::PointerButton::Primary)
+                    && self.pie_menu_pos.is_none()
+                {
+                    let delta = response.drag_delta();
+                    self.camera.yaw -= delta.x * 0.005;
+                    self.camera.pitch =
+                        (self.camera.pitch + delta.y * 0.005).clamp(-1.40, 1.40);
+                    ui.ctx().request_repaint();
+                }
+                // Middle-drag → pan (translate the look-at center in the
+                // camera's local XZ plane).
+                if response.dragged_by(egui::PointerButton::Middle) {
+                    let delta = response.drag_delta();
+                    let (sy, cy) = self.camera.yaw.sin_cos();
+                    let scale = self.camera.distance * 0.002;
+                    self.camera.center[0] -= (cy * delta.x - sy * delta.y) * scale;
+                    self.camera.center[2] += (sy * delta.x + cy * delta.y) * scale;
+                    ui.ctx().request_repaint();
+                }
+                // Scroll wheel → zoom (change orbit distance).
+                if response.contains_pointer() {
+                    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+                    if scroll.abs() > 0.01 {
+                        self.camera.distance =
+                            (self.camera.distance * (1.0 - scroll * 0.003)).clamp(0.5, 200.0);
+                        ui.ctx().request_repaint();
+                    }
+                }
+
+                // ── Draw background + border via egui painter ─────────────────
                 let painter = ui.painter();
-                painter.rect_filled(rect, 4.0, Color32::from_rgb(22, 22, 28));
+                painter.rect_filled(rect, 4.0, Color32::from_rgb(16, 16, 20));
                 painter.rect_stroke(
                     rect,
                     4.0,
                     egui::Stroke::new(1.0, Color32::from_rgb(55, 55, 68)),
                     egui::StrokeKind::Middle,
                 );
-                for i in 1..8 {
-                    let x = rect.left() + rect.width() * (i as f32 / 8.0);
-                    painter.line_segment(
-                        [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
-                        egui::Stroke::new(0.5, Color32::from_rgb(40, 40, 50)),
-                    );
-                }
-                for i in 1..6 {
-                    let y = rect.top() + rect.height() * (i as f32 / 6.0);
-                    painter.line_segment(
-                        [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
-                        egui::Stroke::new(0.5, Color32::from_rgb(40, 40, 50)),
-                    );
-                }
-                // Hint text (only when pie menu is closed so they don't overlap)
-                if self.pie_menu_pos.is_none() {
-                    painter.text(
-                        rect.center(),
-                        egui::Align2::CENTER_CENTER,
-                        "🌐  3-D Viewport\nRendering integration pending\n\nRight-click for pie menu",
-                        egui::FontId::proportional(13.0),
-                        Color32::from_rgb(90, 90, 115),
-                    );
-                }
+
+                // ── Submit the wgpu 3-D grid paint callback ───────────────────
+                editor_viewport::paint_viewport(painter, rect, self.camera);
 
                 // ── Pie menu ─────────────────────────────────────────────────
                 // Open on right-click inside the viewport.
@@ -551,7 +566,7 @@ impl EditorPanel for SceneEditor {
                         self.pie_hovered = None;
                     }
 
-                    // Escape or click outside the viewport closes the menu.
+                    // Escape closes the menu.
                     if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         self.pie_menu_pos = None;
                         self.pie_hovered = None;
