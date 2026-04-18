@@ -1,15 +1,4 @@
-# NovaForge Workspace manifest
-#
-# Points the editor at the Nova-Forge game repository which is included as a
-# git submodule at nova-forge/.
-#
-# After cloning this repo, initialise the submodule once:
-#
-#   git submodule update --init --depth 1
-#
-# Then open the editor suite and load this file from
-# File → Open  (or pass it on the command line).
-
-project_name    = "Nova-Forge"
+project_name = "Nova-Forge"
 nova_forge_path = "nova-forge"
-asset_root      = "nova-forge/assets"
+asset_root = "nova-forge/assets"
+recent_scenes = []
