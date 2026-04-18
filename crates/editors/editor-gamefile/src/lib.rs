@@ -138,7 +138,11 @@ impl EditorPanel for GameFileEditor {
                 {
                     self.save();
                 }
-                if ui.button("✖ Close").on_hover_text("Close without saving").clicked() {
+                if ui
+                    .button("✖ Close")
+                    .on_hover_text("Close without saving")
+                    .clicked()
+                {
                     self.open_path = None;
                     self.content.clear();
                     self.dirty = false;

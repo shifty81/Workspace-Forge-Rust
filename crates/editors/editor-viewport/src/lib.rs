@@ -1,9 +1,10 @@
 //! wgpu-backed 3-D viewport for the NovaForge Scene Editor.
 //!
 //! Renders a perspective-projected grid on the XZ plane together with
-//! colour-coded X/Y/Z axis lines, all inside an egui rect using
-//! [`egui_wgpu::Callback`].  The calling panel supplies a [`CameraState`]
-//! that controls the orbit camera.
+//! colour-coded X/Y/Z axis lines, and wireframe box markers for every scene
+//! entity, all inside an egui rect using [`egui_wgpu::Callback`].
+//! The calling panel supplies a [`CameraState`] that controls the orbit camera
+//! and a slice of [`EntityMarker`] values that position the entity boxes.
 //!
 //! # Integration
 //!
@@ -11,18 +12,40 @@
 //!    [`eframe::CreationContext`] closure, passing
 //!    `cc.wgpu_render_state.as_ref().unwrap()`.
 //! 2. Each frame, call [`paint_viewport`] from your panel's `ui()` method,
-//!    passing the painter, the already-allocated viewport rect, and the current
-//!    [`CameraState`].
+//!    passing the painter, the already-allocated viewport rect, the current
+//!    [`CameraState`], and the list of [`EntityMarker`] values to render.
 
 use bytemuck::{Pod, Zeroable};
 use egui::PaintCallbackInfo;
 use egui_wgpu::{CallbackResources, CallbackTrait, RenderState, ScreenDescriptor};
-use std::f32::consts::{FRAC_PI_3, FRAC_PI_2};
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_3};
 use wgpu::util::DeviceExt;
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/// Maximum number of entity wireframe boxes that can be rendered per frame.
+/// Each box uses 24 vertices (12 edges × 2 end-points as `LineList`).
+const MAX_ENTITY_BOXES: usize = 512;
+const VERTS_PER_BOX: usize = 24; // 12 edges × 2 vertices
+const MAX_ENTITY_VERTS: usize = MAX_ENTITY_BOXES * VERTS_PER_BOX;
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/// Describes a single entity that should be rendered as a wireframe box in the
+/// viewport.  Build a `Vec<EntityMarker>` from your scene entities and pass it
+/// to [`paint_viewport`] every frame.
+#[derive(Clone, Copy)]
+pub struct EntityMarker {
+    /// World-space position of the entity's origin.
+    pub position: [f32; 3],
+    /// Whether this entity is currently selected.  Selected entities are drawn
+    /// with a brighter highlight colour.
+    pub selected: bool,
+}
 
 /// Orbit-camera state.  Store one instance in the panel that owns the
 /// viewport and pass it to [`paint_viewport`] every frame.
@@ -129,6 +152,14 @@ pub fn init_viewport_pipeline(render_state: &RenderState) {
         usage: wgpu::BufferUsages::VERTEX,
     });
 
+    // ── Entity box vertex buffer (dynamic, re-written each frame) ─────────────
+    let entity_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("viewport_entity_vertices"),
+        size: (MAX_ENTITY_VERTS * std::mem::size_of::<Vertex>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
     // ── Render pipeline ───────────────────────────────────────────────────────
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("viewport_layout"),
@@ -180,22 +211,33 @@ pub fn init_viewport_pipeline(render_state: &RenderState) {
             vertex_count,
             uniform_buffer,
             bind_group,
+            entity_vertex_buffer,
+            entity_vertex_count: 0,
         });
 }
 
 /// Add a wgpu paint callback to `painter` that renders the 3-D grid viewport
-/// covering `rect` with the supplied `camera`.
+/// covering `rect` with the supplied `camera` and entity markers.
 ///
 /// You must have called [`init_viewport_pipeline`] at startup, and `rect`
 /// must already have been allocated by the caller (`ui.allocate_exact_size`
 /// or similar).  If the wgpu resources are absent (e.g. running without a
 /// wgpu backend) this is a no-op.
-pub fn paint_viewport(painter: &egui::Painter, rect: egui::Rect, camera: CameraState) {
+///
+/// Each [`EntityMarker`] in `entities` is drawn as a 0.8-unit wireframe box
+/// at its world-space position.  Selected entities use a brighter colour.
+pub fn paint_viewport(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    camera: CameraState,
+    entities: &[EntityMarker],
+) {
     painter.add(egui_wgpu::Callback::new_paint_callback(
         rect,
         ViewportCallback {
             camera,
             viewport_rect: rect,
+            entities: entities.to_vec(),
         },
     ));
 }
@@ -269,6 +311,10 @@ struct ViewportResources {
     vertex_count: u32,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    /// Pre-allocated buffer for entity wireframe boxes (MAX_ENTITY_VERTS × Vertex).
+    entity_vertex_buffer: wgpu::Buffer,
+    /// Number of entity vertices to draw this frame (written by `prepare()`).
+    entity_vertex_count: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +324,8 @@ struct ViewportResources {
 struct ViewportCallback {
     camera: CameraState,
     viewport_rect: egui::Rect,
+    /// Entity markers to render as wireframe boxes this frame.
+    entities: Vec<EntityMarker>,
 }
 
 impl CallbackTrait for ViewportCallback {
@@ -289,7 +337,7 @@ impl CallbackTrait for ViewportCallback {
         _egui_encoder: &mut wgpu::CommandEncoder,
         callback_resources: &mut CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        let Some(res) = callback_resources.get::<ViewportResources>() else {
+        let Some(res) = callback_resources.get_mut::<ViewportResources>() else {
             return vec![];
         };
 
@@ -299,6 +347,22 @@ impl CallbackTrait for ViewportCallback {
 
         let vp_flat = mat4_to_flat(self.camera.view_proj(aspect));
         queue.write_buffer(&res.uniform_buffer, 0, bytemuck::cast_slice(&vp_flat));
+
+        // Build entity wireframe box vertices and upload them.
+        let capped = self.entities.len().min(MAX_ENTITY_BOXES);
+        let mut entity_verts: Vec<Vertex> = Vec::with_capacity(capped * VERTS_PER_BOX);
+        for marker in &self.entities[..capped] {
+            build_box_wireframe(marker, &mut entity_verts);
+        }
+        let count = entity_verts.len() as u32;
+        res.entity_vertex_count = count;
+        if count > 0 {
+            queue.write_buffer(
+                &res.entity_vertex_buffer,
+                0,
+                bytemuck::cast_slice(&entity_verts),
+            );
+        }
 
         vec![]
     }
@@ -327,8 +391,16 @@ impl CallbackTrait for ViewportCallback {
 
         render_pass.set_pipeline(&res.pipeline);
         render_pass.set_bind_group(0, &res.bind_group, &[]);
+
+        // Draw the static grid + axis lines.
         render_pass.set_vertex_buffer(0, res.vertex_buffer.slice(..));
         render_pass.draw(0..res.vertex_count, 0..1);
+
+        // Draw entity wireframe boxes (dynamic, rebuilt each frame).
+        if res.entity_vertex_count > 0 {
+            render_pass.set_vertex_buffer(0, res.entity_vertex_buffer.slice(..));
+            render_pass.draw(0..res.entity_vertex_count, 0..1);
+        }
     }
 }
 
@@ -367,6 +439,73 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     return in.color;
 }
 "#;
+
+// ---------------------------------------------------------------------------
+// Entity box wireframe helper
+// ---------------------------------------------------------------------------
+
+/// Half-size of each wireframe box in world units (box is 0.8 × 0.8 × 0.8).
+const BOX_HALF: f32 = 0.4;
+
+/// Normal entity box colour (dim teal).
+const BOX_NORMAL: [f32; 4] = [0.20, 0.75, 0.80, 1.0];
+/// Selected entity box colour (bright orange-yellow).
+const BOX_SELECTED: [f32; 4] = [1.00, 0.70, 0.10, 1.0];
+
+/// Append 24 `LineList` vertices (12 wireframe edges) for a box centred at
+/// `marker.position` to `out`.  Uses [`BOX_NORMAL`] or [`BOX_SELECTED`]
+/// depending on `marker.selected`.
+fn build_box_wireframe(marker: &EntityMarker, out: &mut Vec<Vertex>) {
+    let [cx, cy, cz] = marker.position;
+    let h = BOX_HALF;
+    let col = if marker.selected {
+        BOX_SELECTED
+    } else {
+        BOX_NORMAL
+    };
+    let [r, g, b, a] = col;
+
+    // 8 corners of the box.
+    let c = [
+        [cx - h, cy - h, cz - h], // 0: ---
+        [cx + h, cy - h, cz - h], // 1: +--
+        [cx + h, cy - h, cz + h], // 2: +-+
+        [cx - h, cy - h, cz + h], // 3: --+
+        [cx - h, cy + h, cz - h], // 4: -+-
+        [cx + h, cy + h, cz - h], // 5: ++-
+        [cx + h, cy + h, cz + h], // 6: +++
+        [cx - h, cy + h, cz + h], // 7: -++
+    ];
+
+    // 12 edges (each a pair of corner indices).
+    let edges: [(usize, usize); 12] = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0), // bottom face
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4), // top face
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7), // vertical edges
+    ];
+
+    for (a_idx, b_idx) in edges {
+        let [ax, ay, az] = c[a_idx];
+        let [bx, by, bz] = c[b_idx];
+        out.push(Vertex {
+            position: [ax, ay, az],
+            color: [r, g, b, a],
+        });
+        out.push(Vertex {
+            position: [bx, by, bz],
+            color: [r, g, b, a],
+        });
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Camera / matrix math (no external math crate required)

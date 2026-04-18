@@ -54,21 +54,39 @@ impl Default for AnimationEditor {
                 Track {
                     name: "Root Bone".to_string(),
                     keyframes: vec![
-                        Keyframe { time: 0.0, label: "A".to_string() },
-                        Keyframe { time: 0.5, label: "B".to_string() },
-                        Keyframe { time: 1.0, label: "C".to_string() },
+                        Keyframe {
+                            time: 0.0,
+                            label: "A".to_string(),
+                        },
+                        Keyframe {
+                            time: 0.5,
+                            label: "B".to_string(),
+                        },
+                        Keyframe {
+                            time: 1.0,
+                            label: "C".to_string(),
+                        },
                     ],
                 },
                 Track {
                     name: "Weapon".to_string(),
                     keyframes: vec![
-                        Keyframe { time: 0.2, label: "A".to_string() },
-                        Keyframe { time: 0.8, label: "B".to_string() },
+                        Keyframe {
+                            time: 0.2,
+                            label: "A".to_string(),
+                        },
+                        Keyframe {
+                            time: 0.8,
+                            label: "B".to_string(),
+                        },
                     ],
                 },
                 Track {
                     name: "FX".to_string(),
-                    keyframes: vec![Keyframe { time: 0.6, label: "A".to_string() }],
+                    keyframes: vec![Keyframe {
+                        time: 0.6,
+                        label: "A".to_string(),
+                    }],
                 },
             ],
             selected_track: None,
@@ -164,7 +182,11 @@ impl EditorPanel for AnimationEditor {
             if ui.button("⏮ Start").clicked() {
                 self.playhead = 0.0;
             }
-            let play_label = if self.playing { "⏸ Pause" } else { "▶ Play" };
+            let play_label = if self.playing {
+                "⏸ Pause"
+            } else {
+                "▶ Play"
+            };
             if ui.button(play_label).clicked() {
                 self.playing = !self.playing;
             }
@@ -173,7 +195,10 @@ impl EditorPanel for AnimationEditor {
                 self.playhead = 0.0;
             }
             ui.separator();
-            ui.label(format!("Time: {:.2} / {:.2} s", self.playhead, self.duration));
+            ui.label(format!(
+                "Time: {:.2} / {:.2} s",
+                self.playhead, self.duration
+            ));
             ui.separator();
             ui.label("Zoom:");
             if ui.button("＋").clicked() {
@@ -200,15 +225,12 @@ impl EditorPanel for AnimationEditor {
                         // Avoid duplicate keyframe at same time (within 1 ms).
                         if !track.keyframes.iter().any(|k| (k.time - t).abs() < 0.001) {
                             self.keyframe_counter += 1;
-                            let label =
-                                (b'A' + (self.keyframe_counter % 26) as u8) as char;
+                            let label = (b'A' + (self.keyframe_counter % 26) as u8) as char;
                             track.keyframes.push(Keyframe {
                                 time: t,
                                 label: label.to_string(),
                             });
-                            track
-                                .keyframes
-                                .sort_by(|a, b| a.time.total_cmp(&b.time));
+                            track.keyframes.sort_by(|a, b| a.time.total_cmp(&b.time));
                             self.selected_keyframe = track
                                 .keyframes
                                 .iter()
@@ -256,7 +278,10 @@ impl EditorPanel for AnimationEditor {
                     final_name = format!("{base} {suffix}");
                     suffix += 1;
                 }
-                self.tracks.push(Track { name: final_name, keyframes: Vec::new() });
+                self.tracks.push(Track {
+                    name: final_name,
+                    keyframes: Vec::new(),
+                });
                 self.new_track_name.clear();
                 self.selected_track = Some(self.tracks.len() - 1);
                 self.selected_keyframe = None;
@@ -348,7 +373,13 @@ impl EditorPanel for AnimationEditor {
             painter.rect_filled(ruler_rect, 0.0, Color32::from_rgb(35, 35, 44));
 
             let px_per_sec = timeline_w / self.duration * self.zoom;
-            let tick_step = if self.zoom > 2.0 { 0.1 } else if self.zoom > 0.5 { 0.5 } else { 1.0 };
+            let tick_step = if self.zoom > 2.0 {
+                0.1
+            } else if self.zoom > 0.5 {
+                0.5
+            } else {
+                1.0
+            };
             let mut t = 0.0_f32;
             while t <= self.duration {
                 let x = ruler_rect.left() + t * px_per_sec;
@@ -356,7 +387,10 @@ impl EditorPanel for AnimationEditor {
                     break;
                 }
                 painter.line_segment(
-                    [egui::pos2(x, ruler_rect.top()), egui::pos2(x, ruler_rect.bottom())],
+                    [
+                        egui::pos2(x, ruler_rect.top()),
+                        egui::pos2(x, ruler_rect.bottom()),
+                    ],
                     egui::Stroke::new(1.0, Color32::from_rgb(80, 80, 100)),
                 );
                 painter.text(
@@ -398,7 +432,11 @@ impl EditorPanel for AnimationEditor {
                     egui::pos2(rect.left(), y_top),
                     egui::vec2(label_w, row_h),
                 );
-                let label_response = ui.interact(label_rect, ui.id().with(("track_label", row)), egui::Sense::click());
+                let label_response = ui.interact(
+                    label_rect,
+                    ui.id().with(("track_label", row)),
+                    egui::Sense::click(),
+                );
                 if label_response.clicked() {
                     new_selected_track = Some(row);
                     new_selected_kf = None;
@@ -423,8 +461,10 @@ impl EditorPanel for AnimationEditor {
                         continue;
                     }
                     let ky = y_top + row_h * 0.5;
-                    let kf_rect = egui::Rect::from_center_size(egui::pos2(kx, ky), egui::vec2(10.0, 10.0));
-                    let kf_selected = self.selected_track == Some(row) && self.selected_keyframe == Some(ki);
+                    let kf_rect =
+                        egui::Rect::from_center_size(egui::pos2(kx, ky), egui::vec2(10.0, 10.0));
+                    let kf_selected =
+                        self.selected_track == Some(row) && self.selected_keyframe == Some(ki);
                     let kf_being_dragged = self.dragging_kf == Some((row, ki));
                     let kf_color = if kf_selected || kf_being_dragged {
                         Color32::from_rgb(255, 220, 60)
@@ -435,13 +475,23 @@ impl EditorPanel for AnimationEditor {
                     painter.rect_stroke(
                         kf_rect,
                         2.0,
-                        egui::Stroke::new(if kf_selected || kf_being_dragged { 2.0 } else { 1.0 }, Color32::WHITE),
+                        egui::Stroke::new(
+                            if kf_selected || kf_being_dragged {
+                                2.0
+                            } else {
+                                1.0
+                            },
+                            Color32::WHITE,
+                        ),
                         egui::StrokeKind::Middle,
                     );
                     // Show a drag-cursor hint when hovering over a keyframe.
                     if kf_being_dragged {
                         painter.rect_filled(
-                            egui::Rect::from_center_size(egui::pos2(kx, ky), egui::vec2(2.0, row_h)),
+                            egui::Rect::from_center_size(
+                                egui::pos2(kx, ky),
+                                egui::vec2(2.0, row_h),
+                            ),
                             0.0,
                             Color32::from_rgba_premultiplied(255, 220, 60, 80),
                         );

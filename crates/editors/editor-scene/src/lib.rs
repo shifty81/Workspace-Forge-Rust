@@ -1,7 +1,7 @@
 //! Scene / World Editor panel for NovaForge Workspace.
 
-use egui::Color32;
 use editor_viewport::CameraState;
+use egui::Color32;
 use novaforge_ui::{EditorPanel, PanelContext};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
@@ -346,8 +346,7 @@ impl SceneEditor {
                         .max()
                         .unwrap_or(0);
                     self.entity_counter = self.entity_counter.max(max_suffix);
-                    self.scene_status =
-                        format!("Loaded {count} entities ← {}", path.display());
+                    self.scene_status = format!("Loaded {count} entities ← {}", path.display());
                 }
                 Err(e) => {
                     self.scene_status = format!("Parse error: {e}");
@@ -408,10 +407,18 @@ impl EditorPanel for SceneEditor {
                 }
             }
             ui.separator();
-            if ui.button("💾 Save").on_hover_text("Save scene to <asset_root>/scenes/scene.toml").clicked() {
+            if ui
+                .button("💾 Save")
+                .on_hover_text("Save scene to <asset_root>/scenes/scene.toml")
+                .clicked()
+            {
                 self.save_scene(ctx);
             }
-            if ui.button("📂 Load").on_hover_text("Load scene from <asset_root>/scenes/scene.toml").clicked() {
+            if ui
+                .button("📂 Load")
+                .on_hover_text("Load scene from <asset_root>/scenes/scene.toml")
+                .clicked()
+            {
                 self.load_scene(ctx);
             }
         });
@@ -448,7 +455,8 @@ impl EditorPanel for SceneEditor {
                 let filter_lower = self.entity_filter.to_lowercase();
                 egui::ScrollArea::vertical()
                     .id_salt("entity_list")
-                    .max_height(available.y - 32.0)                    .show(ui, |ui| {
+                    .max_height(available.y - 32.0)
+                    .show(ui, |ui| {
                         let mut new_selected = self.selected;
                         let mut visible_count = 0usize;
                         for (i, entity) in self.entities.iter().enumerate() {
@@ -498,13 +506,11 @@ impl EditorPanel for SceneEditor {
 
                 // ── Camera controls ───────────────────────────────────────────
                 // Left-drag → orbit (yaw / pitch).
-                if response.dragged_by(egui::PointerButton::Primary)
-                    && self.pie_menu_pos.is_none()
+                if response.dragged_by(egui::PointerButton::Primary) && self.pie_menu_pos.is_none()
                 {
                     let delta = response.drag_delta();
                     self.camera.yaw -= delta.x * 0.005;
-                    self.camera.pitch =
-                        (self.camera.pitch + delta.y * 0.005).clamp(-1.40, 1.40);
+                    self.camera.pitch = (self.camera.pitch + delta.y * 0.005).clamp(-1.40, 1.40);
                     ui.ctx().request_repaint();
                 }
                 // Middle-drag → pan (translate the look-at center in the
@@ -538,7 +544,16 @@ impl EditorPanel for SceneEditor {
                 );
 
                 // ── Submit the wgpu 3-D grid paint callback ───────────────────
-                editor_viewport::paint_viewport(painter, rect, self.camera);
+                let markers: Vec<editor_viewport::EntityMarker> = self
+                    .entities
+                    .iter()
+                    .enumerate()
+                    .map(|(i, e)| editor_viewport::EntityMarker {
+                        position: e.position,
+                        selected: self.selected == Some(i),
+                    })
+                    .collect();
+                editor_viewport::paint_viewport(painter, rect, self.camera, &markers);
 
                 // ── Pie menu ─────────────────────────────────────────────────
                 // Open on right-click inside the viewport.
@@ -593,9 +608,7 @@ impl EditorPanel for SceneEditor {
                                 for (prefix, v) in
                                     ["X ", "Y ", "Z "].iter().zip(entity.position.iter_mut())
                                 {
-                                    ui.add(
-                                        egui::DragValue::new(v).prefix(*prefix).speed(0.1),
-                                    );
+                                    ui.add(egui::DragValue::new(v).prefix(*prefix).speed(0.1));
                                 }
                                 ui.end_row();
 
@@ -603,9 +616,7 @@ impl EditorPanel for SceneEditor {
                                 for (prefix, v) in
                                     ["X ", "Y ", "Z "].iter().zip(entity.rotation.iter_mut())
                                 {
-                                    ui.add(
-                                        egui::DragValue::new(v).prefix(*prefix).speed(0.5),
-                                    );
+                                    ui.add(egui::DragValue::new(v).prefix(*prefix).speed(0.5));
                                 }
                                 ui.end_row();
 
@@ -613,9 +624,7 @@ impl EditorPanel for SceneEditor {
                                 for (prefix, v) in
                                     ["X ", "Y ", "Z "].iter().zip(entity.scale.iter_mut())
                                 {
-                                    ui.add(
-                                        egui::DragValue::new(v).prefix(*prefix).speed(0.01),
-                                    );
+                                    ui.add(egui::DragValue::new(v).prefix(*prefix).speed(0.01));
                                 }
                                 ui.end_row();
                             });

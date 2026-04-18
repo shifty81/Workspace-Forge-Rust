@@ -7,6 +7,11 @@
 //!
 //! A project file (`novaforge.workspace.toml`) can be opened to tell the
 //! launcher where the Nova-Forge binary lives.
+//!
+//! Recent projects are persisted to
+//! `~/.config/novaforge-workspace/recent.toml` (Linux/macOS) or
+//! `%APPDATA%\novaforge-workspace\recent.toml` (Windows), the same file used
+//! by the full editor suite so both share the list.
 
 use eframe::egui;
 use novaforge_project::{WorkspaceManifest, MANIFEST_FILE};
@@ -24,7 +29,7 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "NovaForge Workspace",
         options,
-        Box::new(|_cc| Ok(Box::new(LauncherApp::default()))),
+        Box::new(|_cc| Ok(Box::new(LauncherApp::new()))),
     )
 }
 
@@ -32,12 +37,76 @@ fn main() -> eframe::Result<()> {
 // App
 // ---------------------------------------------------------------------------
 
-#[derive(Default)]
 struct LauncherApp {
     project: Option<WorkspaceManifest>,
     project_path_input: String,
     status: String,
-    recent_projects: Vec<PathBuf>,
+    /// Paths of the last 5 successfully opened projects (most-recent first).
+    recent_projects: Vec<String>,
+}
+
+impl LauncherApp {
+    fn new() -> Self {
+        Self {
+            project: None,
+            project_path_input: String::new(),
+            status: String::new(),
+            recent_projects: Self::load_recent(),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Persistent recent projects
+    // -----------------------------------------------------------------------
+
+    /// Platform-specific path to the recent-projects config file.
+    /// Shares the same file as `novaforge-editors` so both keep one list.
+    fn config_path() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        let base = std::env::var("APPDATA").ok().map(PathBuf::from);
+        #[cfg(not(target_os = "windows"))]
+        let base = std::env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join(".config"));
+        base.map(|b| b.join("novaforge-workspace").join("recent.toml"))
+    }
+
+    /// Load the recent-projects list from disk.  Returns an empty list on any
+    /// error (missing file, parse failure, …) so startup is never blocked.
+    fn load_recent() -> Vec<String> {
+        let Some(path) = Self::config_path() else {
+            return Vec::new();
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return Vec::new();
+        };
+        #[derive(serde::Deserialize)]
+        struct RecentFile {
+            recent: Vec<String>,
+        }
+        toml::from_str::<RecentFile>(&content)
+            .map(|f| f.recent)
+            .unwrap_or_default()
+    }
+
+    /// Persist the current recent-projects list to disk.  Silently ignores errors.
+    fn save_recent(&self) {
+        let Some(path) = Self::config_path() else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        #[derive(serde::Serialize)]
+        struct RecentFile<'a> {
+            recent: &'a [String],
+        }
+        if let Ok(content) = toml::to_string_pretty(&RecentFile {
+            recent: &self.recent_projects,
+        }) {
+            let _ = std::fs::write(&path, content);
+        }
+    }
 }
 
 impl eframe::App for LauncherApp {
@@ -141,14 +210,14 @@ impl LauncherApp {
         if !self.recent_projects.is_empty() {
             ui.add_space(4.0);
             ui.label(egui::RichText::new("Recent projects").size(11.0));
-            let mut open_path: Option<PathBuf> = None;
+            let mut open_path: Option<String> = None;
             for path in &self.recent_projects {
-                if ui.small_button(path.display().to_string()).clicked() {
+                if ui.small_button(path.as_str()).clicked() {
                     open_path = Some(path.clone());
                 }
             }
             if let Some(path) = open_path {
-                self.project_path_input = path.display().to_string();
+                self.project_path_input = path;
                 self.load_project();
             }
         }
@@ -228,19 +297,24 @@ impl LauncherApp {
 
     fn load_project(&mut self) {
         use std::path::Path;
-        let path = Path::new(self.project_path_input.trim());
-        if path.as_os_str().is_empty() {
+        let path_str = self.project_path_input.trim().to_string();
+        if path_str.is_empty() {
             self.status = "Please enter a path.".to_string();
             return;
         }
-        match WorkspaceManifest::load(path) {
+        match WorkspaceManifest::load(Path::new(&path_str)) {
             Ok(manifest) => {
                 self.status = format!("Opened: {}", manifest.project_name);
-                // Track in recent list.
-                let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+                // Canonicalise so duplicates from different relative spellings collapse.
+                let canonical = Path::new(&path_str)
+                    .canonicalize()
+                    .unwrap_or_else(|_| PathBuf::from(&path_str))
+                    .display()
+                    .to_string();
                 self.recent_projects.retain(|p| p != &canonical);
                 self.recent_projects.insert(0, canonical);
                 self.recent_projects.truncate(5);
+                self.save_recent();
                 self.project = Some(manifest);
             }
             Err(e) => {

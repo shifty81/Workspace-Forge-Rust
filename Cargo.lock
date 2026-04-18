@@ -2175,6 +2175,8 @@ dependencies = [
  "egui",
  "novaforge-build",
  "novaforge-project",
+ "serde",
+ "toml",
 ]
 
 [[package]]

@@ -167,8 +167,16 @@ impl Default for MaterialEditor {
             // Wire indices are validated with `.get()` during drawing, so
             // stale entries after node deletion are silently skipped.
             connections: vec![
-                Wire { from_node: 0, to_node: 1, to_input: 0 },
-                Wire { from_node: 1, to_node: 2, to_input: 0 },
+                Wire {
+                    from_node: 0,
+                    to_node: 1,
+                    to_input: 0,
+                },
+                Wire {
+                    from_node: 1,
+                    to_node: 2,
+                    to_input: 0,
+                },
             ],
         }
     }
@@ -203,7 +211,8 @@ impl EditorPanel for MaterialEditor {
                 if let Some(idx) = self.selected_node {
                     self.nodes.remove(idx);
                     // Prune wires touching the deleted node and fix indices.
-                    self.connections.retain(|w| w.from_node != idx && w.to_node != idx);
+                    self.connections
+                        .retain(|w| w.from_node != idx && w.to_node != idx);
                     for w in &mut self.connections {
                         if w.from_node > idx {
                             w.from_node -= 1;
@@ -302,7 +311,12 @@ impl EditorPanel for MaterialEditor {
                 if matches!(new_mode, DragMode::PanningCanvas) {
                     for (idx, node) in self.nodes.iter().enumerate() {
                         let rect = node_screen_rect(
-                            canvas_rect, self.pan, self.zoom, node, node_w, node_h,
+                            canvas_rect,
+                            self.pan,
+                            self.zoom,
+                            node,
+                            node_w,
+                            node_h,
                         );
                         if rect.contains(pos) {
                             self.selected_node = Some(idx);
@@ -341,7 +355,12 @@ impl EditorPanel for MaterialEditor {
                             continue;
                         }
                         let rect = node_screen_rect(
-                            canvas_rect, self.pan, self.zoom, to_node, node_w, node_h,
+                            canvas_rect,
+                            self.pan,
+                            self.zoom,
+                            to_node,
+                            node_w,
+                            node_h,
                         );
                         let num = to_node.inputs.len();
                         for input_idx in 0..num {
@@ -401,7 +420,15 @@ impl EditorPanel for MaterialEditor {
                 let ctrl = ((p3.x - p0.x).abs() * 0.5).max(60.0);
                 let p1 = egui::pos2(p0.x + ctrl, p0.y);
                 let p2 = egui::pos2(p3.x - ctrl, p3.y);
-                draw_bezier(&painter, p0, p1, p2, p3, Color32::from_rgb(180, 150, 60), 2.0);
+                draw_bezier(
+                    &painter,
+                    p0,
+                    p1,
+                    p2,
+                    p3,
+                    Color32::from_rgb(180, 150, 60),
+                    2.0,
+                );
             }
         }
 
@@ -411,7 +438,15 @@ impl EditorPanel for MaterialEditor {
                 let ctrl = ((cursor.x - from_pos.x).abs() * 0.5).max(60.0);
                 let p1 = egui::pos2(from_pos.x + ctrl, from_pos.y);
                 let p2 = egui::pos2(cursor.x - ctrl, cursor.y);
-                draw_bezier(&painter, from_pos, p1, p2, cursor, Color32::from_rgb(230, 220, 80), 2.0);
+                draw_bezier(
+                    &painter,
+                    from_pos,
+                    p1,
+                    p2,
+                    cursor,
+                    Color32::from_rgb(230, 220, 80),
+                    2.0,
+                );
                 ui.ctx().request_repaint();
             }
         }
@@ -420,8 +455,7 @@ impl EditorPanel for MaterialEditor {
         let is_wiring = matches!(self.drag_mode, DragMode::DrawingWire { .. });
         let mut new_selected = self.selected_node;
         for (idx, node) in self.nodes.iter().enumerate() {
-            let rect =
-                node_screen_rect(canvas_rect, self.pan, self.zoom, node, node_w, node_h);
+            let rect = node_screen_rect(canvas_rect, self.pan, self.zoom, node, node_w, node_h);
             if !canvas_rect.intersects(rect) {
                 continue;
             }

@@ -292,7 +292,8 @@ impl EditorPanel for VLogicEditor {
 
                 // Priority 1: output port (right edge) → start edge drawing.
                 'port: for (idx, node) in self.nodes.iter().enumerate() {
-                    let rect = vlogic_node_rect(canvas_rect, self.pan, self.zoom, node, node_w, node_h);
+                    let rect =
+                        vlogic_node_rect(canvas_rect, self.pan, self.zoom, node, node_w, node_h);
                     let port_pos = output_port(rect);
                     if pos.distance(port_pos) < PORT_RADIUS {
                         new_mode = DragMode::DrawingEdge {
@@ -306,7 +307,14 @@ impl EditorPanel for VLogicEditor {
                 // Priority 2: node body → move node.
                 if matches!(new_mode, DragMode::PanningCanvas) {
                     for (idx, node) in self.nodes.iter().enumerate() {
-                        let rect = vlogic_node_rect(canvas_rect, self.pan, self.zoom, node, node_w, node_h);
+                        let rect = vlogic_node_rect(
+                            canvas_rect,
+                            self.pan,
+                            self.zoom,
+                            node,
+                            node_w,
+                            node_h,
+                        );
                         if rect.contains(pos) {
                             self.selected_node = Some(idx);
                             new_mode = DragMode::MovingNode(idx);
@@ -341,7 +349,14 @@ impl EditorPanel for VLogicEditor {
                         if to_idx == from_node {
                             continue;
                         }
-                        let rect = vlogic_node_rect(canvas_rect, self.pan, self.zoom, node, node_w, node_h);
+                        let rect = vlogic_node_rect(
+                            canvas_rect,
+                            self.pan,
+                            self.zoom,
+                            node,
+                            node_w,
+                            node_h,
+                        );
                         let port_pos = input_port(rect);
                         if pos.distance(port_pos) < PORT_RADIUS {
                             // Avoid duplicate edges.
@@ -380,19 +395,29 @@ impl EditorPanel for VLogicEditor {
 
         // ── Edges ────────────────────────────────────────────────────────────
         for &(from, to) in &self.edges {
-            let from_rect = self.nodes.get(from).map(|n| {
-                vlogic_node_rect(canvas_rect, self.pan, self.zoom, n, node_w, node_h)
-            });
-            let to_rect = self.nodes.get(to).map(|n| {
-                vlogic_node_rect(canvas_rect, self.pan, self.zoom, n, node_w, node_h)
-            });
+            let from_rect = self
+                .nodes
+                .get(from)
+                .map(|n| vlogic_node_rect(canvas_rect, self.pan, self.zoom, n, node_w, node_h));
+            let to_rect = self
+                .nodes
+                .get(to)
+                .map(|n| vlogic_node_rect(canvas_rect, self.pan, self.zoom, n, node_w, node_h));
             if let (Some(fr), Some(tr)) = (from_rect, to_rect) {
                 let p0 = output_port(fr);
                 let p3 = input_port(tr);
                 let ctrl = ((p3.x - p0.x).abs() * 0.5).max(50.0);
                 let p1 = egui::pos2(p0.x + ctrl, p0.y);
                 let p2 = egui::pos2(p3.x - ctrl, p3.y);
-                draw_bezier(&painter, p0, p1, p2, p3, Color32::from_rgb(130, 130, 165), 2.0 * self.zoom);
+                draw_bezier(
+                    &painter,
+                    p0,
+                    p1,
+                    p2,
+                    p3,
+                    Color32::from_rgb(130, 130, 165),
+                    2.0 * self.zoom,
+                );
             }
         }
 
@@ -402,7 +427,15 @@ impl EditorPanel for VLogicEditor {
                 let ctrl = ((cursor.x - from_pos.x).abs() * 0.5).max(50.0);
                 let p1 = egui::pos2(from_pos.x + ctrl, from_pos.y);
                 let p2 = egui::pos2(cursor.x - ctrl, cursor.y);
-                draw_bezier(&painter, from_pos, p1, p2, cursor, Color32::from_rgb(230, 220, 80), 2.0);
+                draw_bezier(
+                    &painter,
+                    from_pos,
+                    p1,
+                    p2,
+                    cursor,
+                    Color32::from_rgb(230, 220, 80),
+                    2.0,
+                );
                 ui.ctx().request_repaint();
             }
         }
@@ -454,8 +487,11 @@ impl EditorPanel for VLogicEditor {
 
             // Click-to-select.
             if !is_wiring {
-                let node_response =
-                    ui.interact(rect, ui.id().with(("vlogic_node", idx)), egui::Sense::click());
+                let node_response = ui.interact(
+                    rect,
+                    ui.id().with(("vlogic_node", idx)),
+                    egui::Sense::click(),
+                );
                 if node_response.clicked() {
                     new_selected = Some(idx);
                 }

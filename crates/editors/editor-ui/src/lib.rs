@@ -229,9 +229,9 @@ impl EditorPanel for UiEditorPanel {
         // Click on canvas background (not a drag) deselects.
         if response.clicked() {
             let hit = response.interact_pointer_pos().map(|pos| {
-                self.widgets.iter().any(|w| {
-                    w.rect.translate(canvas_rect.min.to_vec2()).contains(pos)
-                })
+                self.widgets
+                    .iter()
+                    .any(|w| w.rect.translate(canvas_rect.min.to_vec2()).contains(pos))
             });
             if hit != Some(true) {
                 self.selected_widget = None;
@@ -290,9 +290,13 @@ impl EditorPanel for UiEditorPanel {
                 ui.horizontal(|ui| {
                     ui.strong("Inspector");
                     ui.label(
-                        egui::RichText::new(format!("— {} ({})", widget.label, widget.kind.label()))
-                            .size(11.0)
-                            .color(Color32::from_rgb(160, 180, 210)),
+                        egui::RichText::new(format!(
+                            "— {} ({})",
+                            widget.label,
+                            widget.kind.label()
+                        ))
+                        .size(11.0)
+                        .color(Color32::from_rgb(160, 180, 210)),
                     );
                 });
                 egui::Grid::new("ui_inspector")
@@ -300,25 +304,42 @@ impl EditorPanel for UiEditorPanel {
                     .spacing([6.0, 4.0])
                     .show(ui, |ui| {
                         ui.label("Label");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut widget.label).desired_width(140.0),
-                        );
+                        ui.add(egui::TextEdit::singleline(&mut widget.label).desired_width(140.0));
                         ui.label("Type");
                         ui.label(widget.kind.label());
                         ui.end_row();
 
                         ui.label("Position");
-                        ui.add(egui::DragValue::new(&mut widget.rect.min.x).prefix("X ").speed(1.0));
-                        ui.add(egui::DragValue::new(&mut widget.rect.min.y).prefix("Y ").speed(1.0));
+                        ui.add(
+                            egui::DragValue::new(&mut widget.rect.min.x)
+                                .prefix("X ")
+                                .speed(1.0),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut widget.rect.min.y)
+                                .prefix("Y ")
+                                .speed(1.0),
+                        );
                         // Keep max consistent with min after dragging.
-                        widget.rect = egui::Rect::from_min_size(widget.rect.min, widget.rect.size());
+                        widget.rect =
+                            egui::Rect::from_min_size(widget.rect.min, widget.rect.size());
                         ui.end_row();
 
                         ui.label("Size");
                         let mut w = widget.rect.width();
                         let mut h = widget.rect.height();
-                        ui.add(egui::DragValue::new(&mut w).prefix("W ").speed(1.0).range(4.0..=2000.0));
-                        ui.add(egui::DragValue::new(&mut h).prefix("H ").speed(1.0).range(4.0..=2000.0));
+                        ui.add(
+                            egui::DragValue::new(&mut w)
+                                .prefix("W ")
+                                .speed(1.0)
+                                .range(4.0..=2000.0),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut h)
+                                .prefix("H ")
+                                .speed(1.0)
+                                .range(4.0..=2000.0),
+                        );
                         widget.rect = egui::Rect::from_min_size(widget.rect.min, egui::vec2(w, h));
                         ui.end_row();
                     });
