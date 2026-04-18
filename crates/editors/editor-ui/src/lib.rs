@@ -2,6 +2,8 @@
 
 use egui::Color32;
 use novaforge_ui::{EditorPanel, PanelContext};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Height reserved for the property inspector when a widget is selected.
 const INSPECTOR_HEIGHT: f32 = 110.0;
@@ -52,6 +54,8 @@ struct UiWidget {
 /// Provides a drag-and-drop canvas for designing in-game UI layouts.
 /// When a widget is selected an inspector panel appears below the canvas
 /// showing its label, type, position, and size.
+///
+/// The layout can be saved to and loaded from `<asset_root>/ui/ui_layout.toml`.
 pub struct UiEditorPanel {
     widgets: Vec<UiWidget>,
     #[allow(dead_code)]
@@ -62,6 +66,8 @@ pub struct UiEditorPanel {
     widget_start: egui::Pos2,
     /// Index of the selected widget (click to select, Delete button to remove).
     selected_widget: Option<usize>,
+    /// Status message shown in the toolbar (save/load feedback).
+    save_status: String,
 }
 
 impl Default for UiEditorPanel {
@@ -98,6 +104,7 @@ impl Default for UiEditorPanel {
             drag_start: egui::Pos2::ZERO,
             widget_start: egui::Pos2::ZERO,
             selected_widget: None,
+            save_status: String::new(),
         }
     }
 }
@@ -107,7 +114,7 @@ impl EditorPanel for UiEditorPanel {
         "UI Editor"
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &PanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &PanelContext) {
         ui.horizontal(|ui| {
             if ui.button("＋ Panel").clicked() {
                 let kind = WidgetKind::Panel;
@@ -158,8 +165,34 @@ impl EditorPanel for UiEditorPanel {
                 }
             }
             ui.separator();
+            if ui
+                .button("💾 Save")
+                .on_hover_text("Save layout to <asset_root>/ui/ui_layout.toml")
+                .clicked()
+            {
+                self.save_layout(ctx);
+            }
+            if ui
+                .button("📂 Load")
+                .on_hover_text("Load layout from <asset_root>/ui/ui_layout.toml")
+                .clicked()
+            {
+                self.load_layout(ctx);
+            }
+            ui.separator();
             ui.label(format!("{} widgets", self.widgets.len()));
         });
+
+        // Status line (save / load feedback).
+        if !self.save_status.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(&self.save_status)
+                        .size(11.0)
+                        .color(Color32::from_rgb(160, 200, 160)),
+                );
+            });
+        }
 
         ui.separator();
 
@@ -229,9 +262,9 @@ impl EditorPanel for UiEditorPanel {
         // Click on canvas background (not a drag) deselects.
         if response.clicked() {
             let hit = response.interact_pointer_pos().map(|pos| {
-                self.widgets.iter().any(|w| {
-                    w.rect.translate(canvas_rect.min.to_vec2()).contains(pos)
-                })
+                self.widgets
+                    .iter()
+                    .any(|w| w.rect.translate(canvas_rect.min.to_vec2()).contains(pos))
             });
             if hit != Some(true) {
                 self.selected_widget = None;
@@ -290,9 +323,13 @@ impl EditorPanel for UiEditorPanel {
                 ui.horizontal(|ui| {
                     ui.strong("Inspector");
                     ui.label(
-                        egui::RichText::new(format!("— {} ({})", widget.label, widget.kind.label()))
-                            .size(11.0)
-                            .color(Color32::from_rgb(160, 180, 210)),
+                        egui::RichText::new(format!(
+                            "— {} ({})",
+                            widget.label,
+                            widget.kind.label()
+                        ))
+                        .size(11.0)
+                        .color(Color32::from_rgb(160, 180, 210)),
                     );
                 });
                 egui::Grid::new("ui_inspector")
@@ -300,29 +337,158 @@ impl EditorPanel for UiEditorPanel {
                     .spacing([6.0, 4.0])
                     .show(ui, |ui| {
                         ui.label("Label");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut widget.label).desired_width(140.0),
-                        );
+                        ui.add(egui::TextEdit::singleline(&mut widget.label).desired_width(140.0));
                         ui.label("Type");
                         ui.label(widget.kind.label());
                         ui.end_row();
 
                         ui.label("Position");
-                        ui.add(egui::DragValue::new(&mut widget.rect.min.x).prefix("X ").speed(1.0));
-                        ui.add(egui::DragValue::new(&mut widget.rect.min.y).prefix("Y ").speed(1.0));
+                        ui.add(
+                            egui::DragValue::new(&mut widget.rect.min.x)
+                                .prefix("X ")
+                                .speed(1.0),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut widget.rect.min.y)
+                                .prefix("Y ")
+                                .speed(1.0),
+                        );
                         // Keep max consistent with min after dragging.
-                        widget.rect = egui::Rect::from_min_size(widget.rect.min, widget.rect.size());
+                        widget.rect =
+                            egui::Rect::from_min_size(widget.rect.min, widget.rect.size());
                         ui.end_row();
 
                         ui.label("Size");
                         let mut w = widget.rect.width();
                         let mut h = widget.rect.height();
-                        ui.add(egui::DragValue::new(&mut w).prefix("W ").speed(1.0).range(4.0..=2000.0));
-                        ui.add(egui::DragValue::new(&mut h).prefix("H ").speed(1.0).range(4.0..=2000.0));
+                        ui.add(
+                            egui::DragValue::new(&mut w)
+                                .prefix("W ")
+                                .speed(1.0)
+                                .range(4.0..=2000.0),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut h)
+                                .prefix("H ")
+                                .speed(1.0)
+                                .range(4.0..=2000.0),
+                        );
                         widget.rect = egui::Rect::from_min_size(widget.rect.min, egui::vec2(w, h));
                         ui.end_row();
                     });
             }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Save / load helpers
+// ---------------------------------------------------------------------------
+
+/// Serialisable kind tag.
+#[derive(Serialize, Deserialize, Clone, Copy)]
+enum WidgetKindFile {
+    Panel,
+    Label,
+    Button,
+}
+
+/// Serialisable form of a [`UiWidget`].
+#[derive(Serialize, Deserialize)]
+struct UiWidgetFile {
+    label: String,
+    kind: WidgetKindFile,
+    /// [min_x, min_y, width, height]
+    rect: [f32; 4],
+}
+
+/// Root structure for `ui_layout.toml`.
+#[derive(Serialize, Deserialize)]
+struct UiLayoutFile {
+    widgets: Vec<UiWidgetFile>,
+}
+
+impl UiEditorPanel {
+    fn layout_path(ctx: &PanelContext) -> Option<PathBuf> {
+        ctx.asset_root
+            .as_ref()
+            .map(|r| r.join("ui").join("ui_layout.toml"))
+    }
+
+    fn save_layout(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::layout_path(ctx) else {
+            self.save_status = "No project loaded — cannot save layout.".to_string();
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                self.save_status = format!("Directory error: {e}");
+                return;
+            }
+        }
+        let file = UiLayoutFile {
+            widgets: self
+                .widgets
+                .iter()
+                .map(|w| UiWidgetFile {
+                    label: w.label.clone(),
+                    kind: match w.kind {
+                        WidgetKind::Panel => WidgetKindFile::Panel,
+                        WidgetKind::Label => WidgetKindFile::Label,
+                        WidgetKind::Button => WidgetKindFile::Button,
+                    },
+                    rect: [w.rect.min.x, w.rect.min.y, w.rect.width(), w.rect.height()],
+                })
+                .collect(),
+        };
+        match toml::to_string_pretty(&file) {
+            Ok(content) => match std::fs::write(&path, content) {
+                Ok(()) => self.save_status = format!("Saved → {}", path.display()),
+                Err(e) => self.save_status = format!("Write error: {e}"),
+            },
+            Err(e) => self.save_status = format!("Serialise error: {e}"),
+        }
+    }
+
+    fn load_layout(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::layout_path(ctx) else {
+            self.save_status = "No project loaded — cannot load layout.".to_string();
+            return;
+        };
+        if !path.exists() {
+            self.save_status = format!("File not found: {}", path.display());
+            return;
+        }
+        match std::fs::read_to_string(&path) {
+            Err(e) => self.save_status = format!("Read error: {e}"),
+            Ok(content) => match toml::from_str::<UiLayoutFile>(&content) {
+                Err(e) => self.save_status = format!("Parse error: {e}"),
+                Ok(file) => {
+                    self.widgets = file
+                        .widgets
+                        .into_iter()
+                        .map(|w| {
+                            let kind = match w.kind {
+                                WidgetKindFile::Panel => WidgetKind::Panel,
+                                WidgetKindFile::Label => WidgetKind::Label,
+                                WidgetKindFile::Button => WidgetKind::Button,
+                            };
+                            UiWidget {
+                                label: w.label,
+                                kind,
+                                rect: egui::Rect::from_min_size(
+                                    egui::pos2(w.rect[0], w.rect[1]),
+                                    egui::vec2(w.rect[2], w.rect[3]),
+                                ),
+                            }
+                        })
+                        .collect();
+                    self.selected_widget = None;
+                    self.dragging = None;
+                    let count = self.widgets.len();
+                    self.save_status = format!("Loaded {count} widgets ← {}", path.display());
+                }
+            },
         }
     }
 }

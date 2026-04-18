@@ -327,7 +327,9 @@ impl EditorApp {
         struct RecentFile<'a> {
             recent: &'a [String],
         }
-        if let Ok(content) = toml::to_string_pretty(&RecentFile { recent: &self.recent_projects }) {
+        if let Ok(content) = toml::to_string_pretty(&RecentFile {
+            recent: &self.recent_projects,
+        }) {
             let _ = std::fs::write(&path, content);
         }
     }
@@ -411,10 +413,7 @@ impl EditorApp {
                             };
 
                             let mut dialog = rfd::FileDialog::new()
-                                .add_filter(
-                                    "NovaForge workspace manifest",
-                                    &["toml"],
-                                )
+                                .add_filter("NovaForge workspace manifest", &["toml"])
                                 .add_filter("All files", &["*"])
                                 .set_title("Open NovaForge Workspace");
 
@@ -423,8 +422,7 @@ impl EditorApp {
                             }
 
                             if let Some(path) = dialog.pick_file() {
-                                self.project_path_input =
-                                    path.to_string_lossy().to_string();
+                                self.project_path_input = path.to_string_lossy().to_string();
                                 self.load_project();
                                 ui.close_menu();
                             }
@@ -603,12 +601,17 @@ impl eframe::App for EditorApp {
 
         // Propagate workspace browser file selection to the panel context so
         // the Game File Editor can auto-open the chosen file.
-        self.panel_ctx.selected_file =
-            self.panels.workspace_browser.selected_absolute_path();
+        self.panel_ctx.selected_file = self.panels.workspace_browser.selected_absolute_path();
 
         // If the browser context menu requested "Open in File Editor", ensure
         // that tab is visible so the user sees the file immediately.
-        if self.panels.workspace_browser.open_file_request.take().is_some() {
+        if self
+            .panels
+            .workspace_browser
+            .open_file_request
+            .take()
+            .is_some()
+        {
             self.ensure_tab_open(Tab::GameFile);
         }
 
@@ -772,7 +775,11 @@ impl EditorPanel for WorkspaceBrowser {
                     .hint_text("Filter…")
                     .desired_width(f32::INFINITY),
             );
-            if ui.small_button("⟳").on_hover_text("Refresh file tree").clicked() {
+            if ui
+                .small_button("⟳")
+                .on_hover_text("Refresh file tree")
+                .clicked()
+            {
                 if let Some(root) = self.root.clone().or_else(|| ctx.asset_root.clone()) {
                     self.set_root(root);
                 }
@@ -835,9 +842,10 @@ impl EditorPanel for WorkspaceBrowser {
                     let selected = self.selected == Some(i);
 
                     // Build the absolute path once for the context menu.
-                    let abs_path = self.root.as_ref().map(|r| {
-                        r.join(entry.path.replace('/', std::path::MAIN_SEPARATOR_STR))
-                    });
+                    let abs_path = self
+                        .root
+                        .as_ref()
+                        .map(|r| r.join(entry.path.replace('/', std::path::MAIN_SEPARATOR_STR)));
 
                     ui.horizontal(|ui| {
                         ui.add_space(indent);

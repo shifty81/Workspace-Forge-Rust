@@ -16,3 +16,5 @@ egui             = { workspace = true }
 eframe           = { workspace = true }
 novaforge-project = { workspace = true }
 novaforge-build  = { workspace = true }
+serde            = { workspace = true }
+toml             = { workspace = true }

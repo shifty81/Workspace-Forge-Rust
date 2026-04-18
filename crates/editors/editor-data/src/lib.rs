@@ -118,7 +118,8 @@ impl DataEditor {
                         self.rows = table.rows;
                         self.selected_row = None;
                         self.last_path = Some(path.clone());
-                        self.save_status = format!("Loaded {} rows ← {}", self.rows.len(), path.display());
+                        self.save_status =
+                            format!("Loaded {} rows ← {}", self.rows.len(), path.display());
                     }
                     Err(e) => {
                         self.save_status = format!("Parse error: {e}");
@@ -240,18 +241,23 @@ impl EditorPanel for DataEditor {
                     4 => ra.tags.cmp(&rb.tags),
                     _ => std::cmp::Ordering::Equal,
                 };
-                if asc { ord } else { ord.reverse() }
+                if asc {
+                    ord
+                } else {
+                    ord.reverse()
+                }
             });
         }
 
         // Helper: build the column header label with a sort indicator.
-        let col_header = |name: &str, idx: usize, sort_col: Option<usize>, sort_asc: bool| -> String {
-            if sort_col == Some(idx) {
-                format!("{name} {}", if sort_asc { "▲" } else { "▼" })
-            } else {
-                name.to_string()
-            }
-        };
+        let col_header =
+            |name: &str, idx: usize, sort_col: Option<usize>, sort_asc: bool| -> String {
+                if sort_col == Some(idx) {
+                    format!("{name} {}", if sort_asc { "▲" } else { "▼" })
+                } else {
+                    name.to_string()
+                }
+            };
 
         // Table
         egui::ScrollArea::vertical()
@@ -263,10 +269,14 @@ impl EditorPanel for DataEditor {
                     .min_col_width(80.0)
                     .show(ui, |ui| {
                         // Clickable column headers
-                        for (ci, name) in ["ID", "Name", "Type", "Value", "Tags"].iter().enumerate() {
+                        for (ci, name) in ["ID", "Name", "Type", "Value", "Tags"].iter().enumerate()
+                        {
                             let label = col_header(name, ci, self.sort_col, self.sort_asc);
                             if ui
-                                .add(egui::Button::new(egui::RichText::new(label).strong()).frame(false))
+                                .add(
+                                    egui::Button::new(egui::RichText::new(label).strong())
+                                        .frame(false),
+                                )
                                 .on_hover_text("Click to sort")
                                 .clicked()
                             {
