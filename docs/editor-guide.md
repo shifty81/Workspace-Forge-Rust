@@ -138,13 +138,16 @@ A node-graph canvas for authoring materials and shaders.
 | **🗑 Delete Node** | Remove the currently selected node (enabled when a node is selected) |
 | **🔍＋ / 🔍−** | Zoom the canvas in or out |
 | **⊙ Reset View** | Return to default zoom and pan |
+| **🗑 Clear Wires** | Remove all wire connections from the graph |
 | Click a node | Select it (highlighted border; name shown in toolbar) |
 | Drag a node | Reposition it on the canvas |
 | Drag the canvas background | Pan the view |
+| **Scroll wheel** | Zoom in or out (canvas must be hovered) |
+| Drag from an **output port** (right edge, green circle) | Start drawing a wire |
+| Release over an **input port** (left edge, orange circle) | Complete the wire connection |
+| Release anywhere else | Cancel the in-progress wire |
 
-Each node displays coloured port stubs on its left (inputs) and right (output)
-edges.  Full wire-connection interaction and a real egui_node_graph integration
-are planned for a future phase.
+Output ports appear on the right edge of each node; input ports appear on the left.  A yellow cubic Bézier curve is drawn while a wire is in flight.  Completed wires are drawn in amber.  Each input slot accepts at most one wire; connecting a second wire to the same slot is silently ignored.
 
 ---
 
@@ -157,15 +160,19 @@ A blueprint-style node graph for scripting game logic without code.
 | **＋ Event Node** | Add a blue event-trigger node |
 | **＋ Action Node** | Add a green action node |
 | **＋ Branch** | Add a grey branch / condition node |
-| **🗑 Delete** | Remove the selected node |
+| **🗑 Delete** | Remove the selected node (and all edges touching it) |
 | **🔍＋ / 🔍−** | Zoom in / out |
 | **⊙ Reset** | Reset zoom and pan |
+| **🗑 Clear Edges** | Remove all edge connections |
 | Click a node | Select it (thicker border; name shown in toolbar) |
 | Drag a node | Reposition it on the canvas |
 | Drag the canvas background | Pan the view |
+| **Scroll wheel** | Zoom in or out (canvas must be hovered) |
+| Drag from the **output port** (right edge, green circle) | Start drawing an edge |
+| Release over another node's **input port** (left edge, orange circle) | Connect the edge |
+| Release anywhere else | Cancel the in-progress edge |
 
-Edges between the default starter nodes are drawn as straight lines.  A full
-wire-drawing interaction layer is planned for a future phase.
+Edges are drawn as cubic Bézier curves.  Duplicate edges (same source → same target) are silently rejected.
 
 ---
 
@@ -179,13 +186,21 @@ A drag-and-drop canvas for designing in-game UI layouts.
 | **＋ Label** | Add a Label widget (dark green, 100 × 20 px default) |
 | **＋ Button** | Add a Button widget (dark purple, 90 × 28 px default) |
 | **🗑 Delete** | Remove the selected widget (enabled when a widget is selected) |
-| Click a widget | Select it (bright border highlight) |
+| Click a widget | Select it (bright border highlight); the **Inspector** appears below |
 | Drag a widget | Move it around the canvas |
 | Click the canvas background | Deselect the current widget |
 | Widget count badge | Shows total number of widgets in the toolbar |
 
-Each widget type is colour-coded on the canvas.  Full property binding and
-widget hierarchy editing are planned for a future phase.
+**Inspector** (visible when a widget is selected):
+
+| Field | Description |
+|---|---|
+| **Label** | Editable display name shown on the widget |
+| **Type** | Read-only widget type (Panel / Label / Button) |
+| **Position X / Y** | Drag or type to move the widget's top-left corner |
+| **Size W / H** | Drag or type to resize the widget |
+
+Changes made in the Inspector are reflected on the canvas immediately.  Full property binding and widget hierarchy editing are planned for a future phase.
 
 ---
 
@@ -299,7 +314,7 @@ the full multi-panel host.
 |---|---|
 | Drag a tab header | Re-dock the panel to a different position |
 | Middle-click / drag canvas | Pan the node-graph canvases |
-| Scroll wheel on canvas | (planned) Zoom in/out |
+| Scroll wheel on canvas | Zoom in/out (Material, V-Logic canvases) |
 | `Enter` in the File → Project field | Open the project immediately |
 
 ---

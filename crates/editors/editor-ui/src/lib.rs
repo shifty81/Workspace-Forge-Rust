@@ -49,7 +49,8 @@ struct UiWidget {
 /// UI Layout Editor panel.
 ///
 /// Provides a drag-and-drop canvas for designing in-game UI layouts.
-/// Full widget binding and property inspector will be added in a later phase.
+/// When a widget is selected an inspector panel appears below the canvas
+/// showing its label, type, position, and size.
 pub struct UiEditorPanel {
     widgets: Vec<UiWidget>,
     #[allow(dead_code)]
@@ -161,9 +162,23 @@ impl EditorPanel for UiEditorPanel {
 
         ui.separator();
 
-        let available = ui.available_size();
-        let (canvas_rect, response) =
-            ui.allocate_exact_size(available, egui::Sense::click_and_drag());
+        // Reserve space for the property inspector if a widget is selected.
+        const INSPECTOR_HEIGHT: f32 = 110.0;
+        let inspector_shown = self.selected_widget.is_some();
+        let canvas_height = {
+            let avail = ui.available_size();
+            if inspector_shown {
+                (avail.y - INSPECTOR_HEIGHT - 4.0).max(40.0)
+            } else {
+                avail.y
+            }
+        };
+        let canvas_width = ui.available_width();
+
+        let (canvas_rect, response) = ui.allocate_exact_size(
+            egui::vec2(canvas_width, canvas_height),
+            egui::Sense::click_and_drag(),
+        );
 
         let painter = ui.painter_at(canvas_rect);
         // Checkerboard background
@@ -267,5 +282,47 @@ impl EditorPanel for UiEditorPanel {
             egui::FontId::proportional(10.0),
             Color32::from_rgb(70, 70, 90),
         );
+
+        // ── Property Inspector ────────────────────────────────────────────────
+        if let Some(idx) = self.selected_widget {
+            if let Some(widget) = self.widgets.get_mut(idx) {
+                ui.separator();
+                ui.horizontal(|ui| {
+                    ui.strong("Inspector");
+                    ui.label(
+                        egui::RichText::new(format!("— {} ({})", widget.label, widget.kind.label()))
+                            .size(11.0)
+                            .color(Color32::from_rgb(160, 180, 210)),
+                    );
+                });
+                egui::Grid::new("ui_inspector")
+                    .num_columns(4)
+                    .spacing([6.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label("Label");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut widget.label).desired_width(140.0),
+                        );
+                        ui.label("Type");
+                        ui.label(widget.kind.label());
+                        ui.end_row();
+
+                        ui.label("Position");
+                        ui.add(egui::DragValue::new(&mut widget.rect.min.x).prefix("X ").speed(1.0));
+                        ui.add(egui::DragValue::new(&mut widget.rect.min.y).prefix("Y ").speed(1.0));
+                        // Keep max consistent with min after dragging.
+                        widget.rect = egui::Rect::from_min_size(widget.rect.min, widget.rect.size());
+                        ui.end_row();
+
+                        ui.label("Size");
+                        let mut w = widget.rect.width();
+                        let mut h = widget.rect.height();
+                        ui.add(egui::DragValue::new(&mut w).prefix("W ").speed(1.0).range(4.0..=2000.0));
+                        ui.add(egui::DragValue::new(&mut h).prefix("H ").speed(1.0).range(4.0..=2000.0));
+                        widget.rect = egui::Rect::from_min_size(widget.rect.min, egui::vec2(w, h));
+                        ui.end_row();
+                    });
+            }
+        }
     }
 }

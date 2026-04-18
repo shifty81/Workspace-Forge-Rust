@@ -3,6 +3,101 @@
 use egui::Color32;
 use novaforge_ui::{EditorPanel, PanelContext};
 
+/// Hit-test radius for port circles, in screen pixels (zoom-independent).
+const PORT_RADIUS: f32 = 9.0;
+
+// ---------------------------------------------------------------------------
+// Wire
+// ---------------------------------------------------------------------------
+
+/// A wire connecting an output port on one node to an input port on another.
+#[derive(Clone)]
+struct Wire {
+    /// Source node index (output side).
+    from_node: usize,
+    /// Destination node index (input side).
+    to_node: usize,
+    /// Which input slot on `to_node` (0-based).
+    to_input: usize,
+}
+
+// ---------------------------------------------------------------------------
+// DragMode
+// ---------------------------------------------------------------------------
+
+/// What the canvas drag gesture is currently doing.
+#[derive(Default, Clone, Copy, Debug)]
+enum DragMode {
+    #[default]
+    Idle,
+    /// Dragging a node to a new position.
+    MovingNode(usize),
+    /// Panning the canvas.
+    PanningCanvas,
+    /// Dragging a wire from an output port.
+    DrawingWire {
+        from_node: usize,
+        /// Screen-space origin of the wire (output port centre).
+        from_pos: egui::Pos2,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// Helper functions
+// ---------------------------------------------------------------------------
+
+/// Screen-space rect for a node given the current pan/zoom.
+fn node_screen_rect(
+    canvas_rect: egui::Rect,
+    pan: egui::Vec2,
+    zoom: f32,
+    node: &MaterialNode,
+    node_w: f32,
+    node_h: f32,
+) -> egui::Rect {
+    let top_left = canvas_rect.min + pan + node.pos.to_vec2() * zoom;
+    egui::Rect::from_min_size(top_left, egui::vec2(node_w, node_h))
+}
+
+/// Screen-space centre of a node's output port (right edge).
+fn output_port_pos(rect: egui::Rect) -> egui::Pos2 {
+    egui::pos2(rect.right(), rect.center().y)
+}
+
+/// Screen-space centre of a node's input port at `input_idx`.
+fn input_port_pos(rect: egui::Rect, input_idx: usize, num_inputs: usize) -> egui::Pos2 {
+    let y = rect.min.y + (input_idx as f32 + 1.0) * rect.height() / (num_inputs as f32 + 1.0);
+    egui::pos2(rect.left(), y)
+}
+
+/// Draw a cubic Bézier curve as a polyline (24 segments).
+fn draw_bezier(
+    painter: &egui::Painter,
+    p0: egui::Pos2,
+    p1: egui::Pos2,
+    p2: egui::Pos2,
+    p3: egui::Pos2,
+    color: Color32,
+    width: f32,
+) {
+    const N: usize = 24;
+    let mut prev = p0;
+    for i in 1..=N {
+        let t = i as f32 / N as f32;
+        let u = 1.0 - t;
+        let next = egui::pos2(
+            u * u * u * p0.x + 3.0 * u * u * t * p1.x + 3.0 * u * t * t * p2.x + t * t * t * p3.x,
+            u * u * u * p0.y + 3.0 * u * u * t * p1.y + 3.0 * u * t * t * p2.y + t * t * t * p3.y,
+        );
+        painter.line_segment([prev, next], egui::Stroke::new(width, color));
+        prev = next;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MaterialNode
+// ---------------------------------------------------------------------------
+
 /// A node in the material graph.
 #[derive(Clone)]
 struct MaterialNode {
@@ -14,10 +109,15 @@ struct MaterialNode {
     output: String,
 }
 
+// ---------------------------------------------------------------------------
+// MaterialEditor
+// ---------------------------------------------------------------------------
+
 /// Material / Shader Editor panel.
 ///
-/// Displays a node-graph canvas placeholder.  Full egui_node_graph integration
-/// will be wired in during Phase 2 of the editor development.
+/// Provides a node-graph canvas where nodes can be added, moved, and wired
+/// together.  Drag from an output port (right side) to an input port (left
+/// side) to create a wire.  Scroll to zoom; drag the canvas background to pan.
 pub struct MaterialEditor {
     nodes: Vec<MaterialNode>,
     zoom: f32,
@@ -25,8 +125,10 @@ pub struct MaterialEditor {
     selected_node: Option<usize>,
     /// Next unique node ID.
     next_id: usize,
-    /// Index of the node currently being dragged, if any.
-    dragging_node: Option<usize>,
+    /// Current canvas drag mode.
+    drag_mode: DragMode,
+    /// Wire connections between node ports.
+    connections: Vec<Wire>,
 }
 
 impl Default for MaterialEditor {
@@ -59,7 +161,13 @@ impl Default for MaterialEditor {
             pan: egui::Vec2::ZERO,
             selected_node: None,
             next_id: 3,
-            dragging_node: None,
+            drag_mode: DragMode::Idle,
+            // Seed with two default wires matching the original hard-coded
+            // demonstration: Texture Sample → Multiply A → Output Colour.
+            connections: vec![
+                Wire { from_node: 0, to_node: 1, to_input: 0 },
+                Wire { from_node: 1, to_node: 2, to_input: 0 },
+            ],
         }
     }
 }
@@ -70,12 +178,11 @@ impl EditorPanel for MaterialEditor {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _ctx: &PanelContext) {
-        // Toolbar
+        // ── Toolbar ─────────────────────────────────────────────────────────
         ui.horizontal(|ui| {
             if ui.button("＋ Add Node").clicked() {
                 let id = self.next_id;
                 self.next_id += 1;
-                // Place the new node offset from the last one so it's visible.
                 let offset = egui::vec2(20.0, 20.0) * id as f32;
                 self.nodes.push(MaterialNode {
                     id,
@@ -93,6 +200,16 @@ impl EditorPanel for MaterialEditor {
             {
                 if let Some(idx) = self.selected_node {
                     self.nodes.remove(idx);
+                    // Prune wires touching the deleted node and fix indices.
+                    self.connections.retain(|w| w.from_node != idx && w.to_node != idx);
+                    for w in &mut self.connections {
+                        if w.from_node > idx {
+                            w.from_node -= 1;
+                        }
+                        if w.to_node > idx {
+                            w.to_node -= 1;
+                        }
+                    }
                     self.selected_node = if self.nodes.is_empty() {
                         None
                     } else {
@@ -111,6 +228,14 @@ impl EditorPanel for MaterialEditor {
                 self.zoom = 1.0;
                 self.pan = egui::Vec2::ZERO;
             }
+            ui.separator();
+            if ui
+                .button("🗑 Clear Wires")
+                .on_hover_text("Remove all wire connections")
+                .clicked()
+            {
+                self.connections.clear();
+            }
             if let Some(idx) = self.selected_node {
                 if let Some(node) = self.nodes.get(idx) {
                     ui.separator();
@@ -121,58 +246,136 @@ impl EditorPanel for MaterialEditor {
                     );
                 }
             }
+            if matches!(self.drag_mode, DragMode::DrawingWire { .. }) {
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("🔌 Drawing wire — release on an input port to connect")
+                        .size(11.0)
+                        .color(Color32::from_rgb(220, 210, 80)),
+                );
+            }
         });
 
         ui.separator();
 
-        // Node graph canvas (placeholder rendering)
+        // ── Canvas allocation ────────────────────────────────────────────────
         let available = ui.available_size();
-        let (canvas_rect, response) = ui.allocate_exact_size(available, egui::Sense::click_and_drag());
+        let (canvas_rect, response) =
+            ui.allocate_exact_size(available, egui::Sense::click_and_drag());
 
-        // Node dimensions (needed before drag handling below).
         let node_w = 120.0 * self.zoom;
         let node_h = 64.0 * self.zoom;
 
-        // ── Drag handling: node drag vs. canvas pan ───────────────────────────
+        // Scroll-wheel zoom (canvas must be hovered).
+        if response.hovered() {
+            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+            if scroll.abs() > 0.5 {
+                self.zoom = (self.zoom * (1.0 + scroll * 0.003)).clamp(0.3, 3.0);
+            }
+        }
+
+        // ── Drag handling ────────────────────────────────────────────────────
         if response.drag_started() {
-            self.dragging_node = None;
             if let Some(pos) = response.interact_pointer_pos() {
-                for (idx, node) in self.nodes.iter().enumerate() {
-                    let top_left = canvas_rect.min + self.pan + node.pos.to_vec2() * self.zoom;
-                    let rect = egui::Rect::from_min_size(top_left, egui::vec2(node_w, node_h));
-                    if rect.contains(pos) {
-                        self.dragging_node = Some(idx);
-                        self.selected_node = Some(idx);
-                        break;
+                let mut new_mode = DragMode::PanningCanvas;
+
+                // Priority 1: output port → start wire drawing.
+                'port: for (idx, node) in self.nodes.iter().enumerate() {
+                    if node.output.is_empty() {
+                        continue;
+                    }
+                    let rect =
+                        node_screen_rect(canvas_rect, self.pan, self.zoom, node, node_w, node_h);
+                    let port_pos = output_port_pos(rect);
+                    if pos.distance(port_pos) < PORT_RADIUS {
+                        new_mode = DragMode::DrawingWire {
+                            from_node: idx,
+                            from_pos: port_pos,
+                        };
+                        break 'port;
+                    }
+                }
+
+                // Priority 2: node body → move node.
+                if matches!(new_mode, DragMode::PanningCanvas) {
+                    for (idx, node) in self.nodes.iter().enumerate() {
+                        let rect = node_screen_rect(
+                            canvas_rect, self.pan, self.zoom, node, node_w, node_h,
+                        );
+                        if rect.contains(pos) {
+                            self.selected_node = Some(idx);
+                            new_mode = DragMode::MovingNode(idx);
+                            break;
+                        }
+                    }
+                }
+
+                self.drag_mode = new_mode;
+            }
+        }
+
+        if response.dragged() {
+            let delta = response.drag_delta();
+            match self.drag_mode {
+                DragMode::MovingNode(idx) => {
+                    if let Some(node) = self.nodes.get_mut(idx) {
+                        node.pos += delta / self.zoom;
+                    }
+                }
+                DragMode::PanningCanvas => {
+                    self.pan += delta;
+                }
+                DragMode::DrawingWire { .. } | DragMode::Idle => {}
+            }
+        }
+
+        if response.drag_stopped() {
+            // If a wire was being drawn, try to connect it to the nearest input.
+            if let DragMode::DrawingWire { from_node, .. } = self.drag_mode {
+                let drop_pos = ui.input(|i| i.pointer.interact_pos());
+                if let Some(pos) = drop_pos {
+                    'connect: for (to_idx, to_node) in self.nodes.iter().enumerate() {
+                        if to_idx == from_node {
+                            continue;
+                        }
+                        let rect = node_screen_rect(
+                            canvas_rect, self.pan, self.zoom, to_node, node_w, node_h,
+                        );
+                        let num = to_node.inputs.len();
+                        for input_idx in 0..num {
+                            let port_pos = input_port_pos(rect, input_idx, num);
+                            if pos.distance(port_pos) < PORT_RADIUS {
+                                // Skip if this input is already wired.
+                                let taken = self
+                                    .connections
+                                    .iter()
+                                    .any(|w| w.to_node == to_idx && w.to_input == input_idx);
+                                if !taken {
+                                    self.connections.push(Wire {
+                                        from_node,
+                                        to_node: to_idx,
+                                        to_input: input_idx,
+                                    });
+                                }
+                                break 'connect;
+                            }
+                        }
                     }
                 }
             }
-        }
-        if response.dragged() {
-            let delta = response.drag_delta();
-            if let Some(idx) = self.dragging_node {
-                if let Some(node) = self.nodes.get_mut(idx) {
-                    node.pos += delta / self.zoom;
-                }
-            } else {
-                self.pan += delta;
-            }
-        }
-        if response.drag_stopped() {
-            self.dragging_node = None;
+            self.drag_mode = DragMode::Idle;
         }
 
+        // ── Painting ─────────────────────────────────────────────────────────
         let painter = ui.painter_at(canvas_rect);
         painter.rect_filled(canvas_rect, 0.0, Color32::from_rgb(20, 20, 26));
 
         // Dot-grid background
         let step = 24.0 * self.zoom;
         let origin = canvas_rect.min + self.pan;
-        let offset_x = origin.x % step;
-        let offset_y = origin.y % step;
-        let mut x = canvas_rect.left() + offset_x;
+        let mut x = canvas_rect.left() + origin.x % step;
         while x < canvas_rect.right() {
-            let mut y = canvas_rect.top() + offset_y;
+            let mut y = canvas_rect.top() + origin.y % step;
             while y < canvas_rect.bottom() {
                 painter.circle_filled(egui::pos2(x, y), 1.0, Color32::from_rgb(50, 50, 62));
                 y += step;
@@ -180,12 +383,43 @@ impl EditorPanel for MaterialEditor {
             x += step;
         }
 
-        // Draw nodes
+        // ── Existing wire connections ─────────────────────────────────────────
+        for wire in &self.connections {
+            let from_rect = self
+                .nodes
+                .get(wire.from_node)
+                .map(|n| node_screen_rect(canvas_rect, self.pan, self.zoom, n, node_w, node_h));
+            let to_info = self.nodes.get(wire.to_node).map(|n| {
+                let r = node_screen_rect(canvas_rect, self.pan, self.zoom, n, node_w, node_h);
+                (r, n.inputs.len())
+            });
+            if let (Some(fr), Some((tr, num_in))) = (from_rect, to_info) {
+                let p0 = output_port_pos(fr);
+                let p3 = input_port_pos(tr, wire.to_input, num_in);
+                let ctrl = ((p3.x - p0.x).abs() * 0.5).max(60.0);
+                let p1 = egui::pos2(p0.x + ctrl, p0.y);
+                let p2 = egui::pos2(p3.x - ctrl, p3.y);
+                draw_bezier(&painter, p0, p1, p2, p3, Color32::from_rgb(180, 150, 60), 2.0);
+            }
+        }
+
+        // ── In-progress wire ─────────────────────────────────────────────────
+        if let DragMode::DrawingWire { from_pos, .. } = self.drag_mode {
+            if let Some(cursor) = ui.input(|i| i.pointer.hover_pos()) {
+                let ctrl = ((cursor.x - from_pos.x).abs() * 0.5).max(60.0);
+                let p1 = egui::pos2(from_pos.x + ctrl, from_pos.y);
+                let p2 = egui::pos2(cursor.x - ctrl, cursor.y);
+                draw_bezier(&painter, from_pos, p1, p2, cursor, Color32::from_rgb(230, 220, 80), 2.0);
+                ui.ctx().request_repaint();
+            }
+        }
+
+        // ── Nodes ─────────────────────────────────────────────────────────────
+        let is_wiring = matches!(self.drag_mode, DragMode::DrawingWire { .. });
         let mut new_selected = self.selected_node;
         for (idx, node) in self.nodes.iter().enumerate() {
-            let top_left = canvas_rect.min + self.pan + node.pos.to_vec2() * self.zoom;
-            let rect = egui::Rect::from_min_size(top_left, egui::vec2(node_w, node_h));
-
+            let rect =
+                node_screen_rect(canvas_rect, self.pan, self.zoom, node, node_w, node_h);
             if !canvas_rect.intersects(rect) {
                 continue;
             }
@@ -216,32 +450,60 @@ impl EditorPanel for MaterialEditor {
                 egui::FontId::proportional(12.0 * self.zoom),
                 Color32::WHITE,
             );
-            // Output port stub
+
+            // Output port
             if !node.output.is_empty() {
-                let port = egui::pos2(rect.right(), rect.center().y);
-                painter.circle_filled(port, 5.0 * self.zoom, Color32::from_rgb(120, 200, 120));
-            }
-            // Input port stubs
-            for (i, _input) in node.inputs.iter().enumerate() {
-                let y = rect.min.y + (i as f32 + 1.0) * node_h / (node.inputs.len() as f32 + 1.0);
-                let port = egui::pos2(rect.left(), y);
-                painter.circle_filled(port, 5.0 * self.zoom, Color32::from_rgb(200, 140, 80));
+                let port_pos = output_port_pos(rect);
+                let port_color = if is_wiring {
+                    Color32::from_rgb(160, 240, 160)
+                } else {
+                    Color32::from_rgb(120, 200, 120)
+                };
+                painter.circle_filled(port_pos, 5.0 * self.zoom, port_color);
+                painter.text(
+                    port_pos + egui::vec2(-6.0, 0.0),
+                    egui::Align2::RIGHT_CENTER,
+                    &node.output,
+                    egui::FontId::proportional(9.0 * self.zoom),
+                    Color32::from_rgb(180, 210, 180),
+                );
             }
 
-            // Click-to-select — interact with a rect in the egui layer.
-            let node_response =
-                ui.interact(rect, ui.id().with(("mat_node", idx)), egui::Sense::click());
-            if node_response.clicked() {
-                new_selected = Some(idx);
+            // Input ports
+            let num = node.inputs.len();
+            for (i, input_name) in node.inputs.iter().enumerate() {
+                let port_pos = input_port_pos(rect, i, num);
+                let port_color = if is_wiring {
+                    Color32::from_rgb(240, 210, 100)
+                } else {
+                    Color32::from_rgb(200, 140, 80)
+                };
+                painter.circle_filled(port_pos, 5.0 * self.zoom, port_color);
+                painter.text(
+                    port_pos + egui::vec2(6.0, 0.0),
+                    egui::Align2::LEFT_CENTER,
+                    input_name,
+                    egui::FontId::proportional(9.0 * self.zoom),
+                    Color32::from_rgb(210, 190, 160),
+                );
+            }
+
+            // Click-to-select (only when not drawing a wire).
+            if !is_wiring {
+                let node_resp =
+                    ui.interact(rect, ui.id().with(("mat_node", idx)), egui::Sense::click());
+                if node_resp.clicked() {
+                    new_selected = Some(idx);
+                }
             }
         }
         self.selected_node = new_selected;
 
         painter.text(
-            canvas_rect.center() + egui::vec2(0.0, canvas_rect.height() * 0.35),
-            egui::Align2::CENTER_CENTER,
-            "Node Graph — drag canvas to pan  •  drag a node to move it  •  click a node to select",
-            egui::FontId::proportional(11.0),
+            canvas_rect.left_bottom() + egui::vec2(8.0, -12.0),
+            egui::Align2::LEFT_BOTTOM,
+            "Drag output port → input port to wire  •  scroll to zoom  •  drag canvas to pan  •  drag node to move",
+            egui::FontId::proportional(10.0),
             Color32::from_rgb(70, 70, 90),
         );
     }
