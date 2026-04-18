@@ -30,7 +30,8 @@ use wgpu::util::DeviceExt;
 pub struct CameraState {
     /// Horizontal orbit angle around the Y axis, in radians.
     pub yaw: f32,
-    /// Vertical elevation angle, in radians.  Clamped to ±80 ° before use.
+    /// Vertical elevation angle, in radians.  Clamped to approximately
+    /// ±1.40 radians (±80 °) before use to prevent gimbal lock.
     pub pitch: f32,
     /// Distance from `center` to the camera eye, in world units.
     pub distance: f32,
