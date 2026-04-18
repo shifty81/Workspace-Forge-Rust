@@ -153,6 +153,8 @@ impl Default for VLogicEditor {
             next_id: 4,
             drag_mode: DragMode::Idle,
             // Default edges matching the original hard-coded demonstration.
+            // Edge indices are validated with `.get()` during drawing, so
+            // stale entries after node deletion are silently skipped.
             edges: vec![(0, 1), (1, 2), (1, 3)],
         }
     }

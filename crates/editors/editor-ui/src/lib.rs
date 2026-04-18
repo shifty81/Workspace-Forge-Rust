@@ -3,7 +3,8 @@
 use egui::Color32;
 use novaforge_ui::{EditorPanel, PanelContext};
 
-/// Kind of UI widget on the design canvas.
+/// Height reserved for the property inspector when a widget is selected.
+const INSPECTOR_HEIGHT: f32 = 110.0;
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 enum WidgetKind {
     #[default]
@@ -163,7 +164,6 @@ impl EditorPanel for UiEditorPanel {
         ui.separator();
 
         // Reserve space for the property inspector if a widget is selected.
-        const INSPECTOR_HEIGHT: f32 = 110.0;
         let inspector_shown = self.selected_widget.is_some();
         let canvas_height = {
             let avail = ui.available_size();

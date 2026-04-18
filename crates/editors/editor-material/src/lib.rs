@@ -164,6 +164,8 @@ impl Default for MaterialEditor {
             drag_mode: DragMode::Idle,
             // Seed with two default wires matching the original hard-coded
             // demonstration: Texture Sample → Multiply A → Output Colour.
+            // Wire indices are validated with `.get()` during drawing, so
+            // stale entries after node deletion are silently skipped.
             connections: vec![
                 Wire { from_node: 0, to_node: 1, to_input: 0 },
                 Wire { from_node: 1, to_node: 2, to_input: 0 },
