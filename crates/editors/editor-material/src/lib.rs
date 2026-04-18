@@ -2,6 +2,8 @@
 
 use egui::Color32;
 use novaforge_ui::{EditorPanel, PanelContext};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Hit-test radius for port circles, in screen pixels (zoom-independent).
 const PORT_RADIUS: f32 = 9.0;
@@ -11,7 +13,7 @@ const PORT_RADIUS: f32 = 9.0;
 // ---------------------------------------------------------------------------
 
 /// A wire connecting an output port on one node to an input port on another.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Wire {
     /// Source node index (output side).
     from_node: usize,
@@ -118,6 +120,8 @@ struct MaterialNode {
 /// Provides a node-graph canvas where nodes can be added, moved, and wired
 /// together.  Drag from an output port (right side) to an input port (left
 /// side) to create a wire.  Scroll to zoom; drag the canvas background to pan.
+///
+/// The graph can be saved to and loaded from `<asset_root>/materials/material_graph.toml`.
 pub struct MaterialEditor {
     nodes: Vec<MaterialNode>,
     zoom: f32,
@@ -129,6 +133,8 @@ pub struct MaterialEditor {
     drag_mode: DragMode,
     /// Wire connections between node ports.
     connections: Vec<Wire>,
+    /// Status message shown in the toolbar (save/load feedback).
+    save_status: String,
 }
 
 impl Default for MaterialEditor {
@@ -178,6 +184,7 @@ impl Default for MaterialEditor {
                     to_input: 0,
                 },
             ],
+            save_status: String::new(),
         }
     }
 }
@@ -187,7 +194,7 @@ impl EditorPanel for MaterialEditor {
         "Material Editor"
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &PanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &PanelContext) {
         // ── Toolbar ─────────────────────────────────────────────────────────
         ui.horizontal(|ui| {
             if ui.button("＋ Add Node").clicked() {
@@ -229,6 +236,21 @@ impl EditorPanel for MaterialEditor {
                 }
             }
             ui.separator();
+            if ui
+                .button("💾 Save")
+                .on_hover_text("Save graph to <asset_root>/materials/material_graph.toml")
+                .clicked()
+            {
+                self.save_graph(ctx);
+            }
+            if ui
+                .button("📂 Load")
+                .on_hover_text("Load graph from <asset_root>/materials/material_graph.toml")
+                .clicked()
+            {
+                self.load_graph(ctx);
+            }
+            ui.separator();
             if ui.button("🔍＋ Zoom In").clicked() {
                 self.zoom = (self.zoom + 0.1).min(3.0);
             }
@@ -266,6 +288,17 @@ impl EditorPanel for MaterialEditor {
                 );
             }
         });
+
+        // Status line (save / load feedback).
+        if !self.save_status.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(&self.save_status)
+                        .size(11.0)
+                        .color(Color32::from_rgb(160, 200, 160)),
+                );
+            });
+        }
 
         ui.separator();
 
@@ -542,5 +575,129 @@ impl EditorPanel for MaterialEditor {
             egui::FontId::proportional(10.0),
             Color32::from_rgb(70, 70, 90),
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Save / load helpers
+// ---------------------------------------------------------------------------
+
+/// Serialisable form of a [`MaterialNode`].
+#[derive(Serialize, Deserialize)]
+struct NodeFile {
+    id: usize,
+    label: String,
+    pos: [f32; 2],
+    inputs: Vec<String>,
+    output: String,
+}
+
+/// Serialisable form of a [`Wire`].
+#[derive(Serialize, Deserialize)]
+struct WireFile {
+    from_node: usize,
+    to_node: usize,
+    to_input: usize,
+}
+
+/// Root structure for `material_graph.toml`.
+#[derive(Serialize, Deserialize)]
+struct MaterialGraphFile {
+    next_id: usize,
+    nodes: Vec<NodeFile>,
+    connections: Vec<WireFile>,
+}
+
+impl MaterialEditor {
+    fn graph_path(ctx: &PanelContext) -> Option<PathBuf> {
+        ctx.asset_root
+            .as_ref()
+            .map(|r| r.join("materials").join("material_graph.toml"))
+    }
+
+    fn save_graph(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::graph_path(ctx) else {
+            self.save_status = "No project loaded — cannot save graph.".to_string();
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                self.save_status = format!("Directory error: {e}");
+                return;
+            }
+        }
+        let file = MaterialGraphFile {
+            next_id: self.next_id,
+            nodes: self
+                .nodes
+                .iter()
+                .map(|n| NodeFile {
+                    id: n.id,
+                    label: n.label.clone(),
+                    pos: [n.pos.x, n.pos.y],
+                    inputs: n.inputs.clone(),
+                    output: n.output.clone(),
+                })
+                .collect(),
+            connections: self
+                .connections
+                .iter()
+                .map(|w| WireFile {
+                    from_node: w.from_node,
+                    to_node: w.to_node,
+                    to_input: w.to_input,
+                })
+                .collect(),
+        };
+        match toml::to_string_pretty(&file) {
+            Ok(content) => match std::fs::write(&path, content) {
+                Ok(()) => self.save_status = format!("Saved → {}", path.display()),
+                Err(e) => self.save_status = format!("Write error: {e}"),
+            },
+            Err(e) => self.save_status = format!("Serialise error: {e}"),
+        }
+    }
+
+    fn load_graph(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::graph_path(ctx) else {
+            self.save_status = "No project loaded — cannot load graph.".to_string();
+            return;
+        };
+        if !path.exists() {
+            self.save_status = format!("File not found: {}", path.display());
+            return;
+        }
+        match std::fs::read_to_string(&path) {
+            Err(e) => self.save_status = format!("Read error: {e}"),
+            Ok(content) => match toml::from_str::<MaterialGraphFile>(&content) {
+                Err(e) => self.save_status = format!("Parse error: {e}"),
+                Ok(file) => {
+                    self.next_id = file.next_id;
+                    self.nodes = file
+                        .nodes
+                        .into_iter()
+                        .map(|n| MaterialNode {
+                            id: n.id,
+                            label: n.label,
+                            pos: egui::pos2(n.pos[0], n.pos[1]),
+                            inputs: n.inputs,
+                            output: n.output,
+                        })
+                        .collect();
+                    self.connections = file
+                        .connections
+                        .into_iter()
+                        .map(|w| Wire {
+                            from_node: w.from_node,
+                            to_node: w.to_node,
+                            to_input: w.to_input,
+                        })
+                        .collect();
+                    self.selected_node = None;
+                    self.save_status =
+                        format!("Loaded {} nodes ← {}", self.nodes.len(), path.display());
+                }
+            },
+        }
     }
 }

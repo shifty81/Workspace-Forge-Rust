@@ -6,6 +6,8 @@
 
 use egui::Color32;
 use novaforge_ui::{EditorPanel, PanelContext};
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 /// Hit-test radius for port circles, in screen pixels (zoom-independent).
 const PORT_RADIUS: f32 = 9.0;
@@ -105,6 +107,8 @@ struct LogicNode {
 /// Provides a blueprint-style node graph.  Drag from the right side of a node
 /// to the left side of another to draw an edge.  Scroll to zoom; drag the
 /// canvas to pan.
+///
+/// The graph can be saved to and loaded from `<asset_root>/logic/logic_graph.toml`.
 pub struct VLogicEditor {
     nodes: Vec<LogicNode>,
     zoom: f32,
@@ -116,6 +120,8 @@ pub struct VLogicEditor {
     drag_mode: DragMode,
     /// Directed edges: (from_node_index, to_node_index).
     edges: Vec<(usize, usize)>,
+    /// Status message shown in the toolbar (save/load feedback).
+    save_status: String,
 }
 
 impl Default for VLogicEditor {
@@ -156,6 +162,7 @@ impl Default for VLogicEditor {
             // Edge indices are validated with `.get()` during drawing, so
             // stale entries after node deletion are silently skipped.
             edges: vec![(0, 1), (1, 2), (1, 3)],
+            save_status: String::new(),
         }
     }
 }
@@ -165,7 +172,7 @@ impl EditorPanel for VLogicEditor {
         "Visual Logic"
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &PanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &PanelContext) {
         // ── Toolbar ──────────────────────────────────────────────────────────
         ui.horizontal(|ui| {
             if ui.button("＋ Event Node").clicked() {
@@ -229,6 +236,21 @@ impl EditorPanel for VLogicEditor {
                 }
             }
             ui.separator();
+            if ui
+                .button("💾 Save")
+                .on_hover_text("Save graph to <asset_root>/logic/logic_graph.toml")
+                .clicked()
+            {
+                self.save_graph(ctx);
+            }
+            if ui
+                .button("📂 Load")
+                .on_hover_text("Load graph from <asset_root>/logic/logic_graph.toml")
+                .clicked()
+            {
+                self.load_graph(ctx);
+            }
+            ui.separator();
             if ui.button("🔍＋").clicked() {
                 self.zoom = (self.zoom + 0.1).min(3.0);
             }
@@ -266,6 +288,17 @@ impl EditorPanel for VLogicEditor {
                 );
             }
         });
+
+        // Status line (save / load feedback).
+        if !self.save_status.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(&self.save_status)
+                        .size(11.0)
+                        .color(Color32::from_rgb(160, 200, 160)),
+                );
+            });
+        }
 
         ui.separator();
 
@@ -506,5 +539,113 @@ impl EditorPanel for VLogicEditor {
             egui::FontId::proportional(10.0),
             Color32::from_rgb(70, 70, 90),
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Save / load helpers
+// ---------------------------------------------------------------------------
+
+/// Serialisable form of a [`LogicNode`] colour (RGBA bytes).
+#[derive(Serialize, Deserialize)]
+struct NodeColour {
+    r: u8,
+    g: u8,
+    b: u8,
+}
+
+/// Serialisable form of a [`LogicNode`].
+#[derive(Serialize, Deserialize)]
+struct LogicNodeFile {
+    id: usize,
+    label: String,
+    pos: [f32; 2],
+    colour: NodeColour,
+}
+
+/// Root structure for `logic_graph.toml`.
+#[derive(Serialize, Deserialize)]
+struct LogicGraphFile {
+    next_id: usize,
+    nodes: Vec<LogicNodeFile>,
+    edges: Vec<[usize; 2]>,
+}
+
+impl VLogicEditor {
+    fn graph_path(ctx: &PanelContext) -> Option<PathBuf> {
+        ctx.asset_root
+            .as_ref()
+            .map(|r| r.join("logic").join("logic_graph.toml"))
+    }
+
+    fn save_graph(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::graph_path(ctx) else {
+            self.save_status = "No project loaded — cannot save graph.".to_string();
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                self.save_status = format!("Directory error: {e}");
+                return;
+            }
+        }
+        let file = LogicGraphFile {
+            next_id: self.next_id,
+            nodes: self
+                .nodes
+                .iter()
+                .map(|n| {
+                    let [r, g, b, _] = n.colour.to_array();
+                    LogicNodeFile {
+                        id: n.id,
+                        label: n.label.clone(),
+                        pos: [n.pos.x, n.pos.y],
+                        colour: NodeColour { r, g, b },
+                    }
+                })
+                .collect(),
+            edges: self.edges.iter().map(|&(f, t)| [f, t]).collect(),
+        };
+        match toml::to_string_pretty(&file) {
+            Ok(content) => match std::fs::write(&path, content) {
+                Ok(()) => self.save_status = format!("Saved → {}", path.display()),
+                Err(e) => self.save_status = format!("Write error: {e}"),
+            },
+            Err(e) => self.save_status = format!("Serialise error: {e}"),
+        }
+    }
+
+    fn load_graph(&mut self, ctx: &PanelContext) {
+        let Some(path) = Self::graph_path(ctx) else {
+            self.save_status = "No project loaded — cannot load graph.".to_string();
+            return;
+        };
+        if !path.exists() {
+            self.save_status = format!("File not found: {}", path.display());
+            return;
+        }
+        match std::fs::read_to_string(&path) {
+            Err(e) => self.save_status = format!("Read error: {e}"),
+            Ok(content) => match toml::from_str::<LogicGraphFile>(&content) {
+                Err(e) => self.save_status = format!("Parse error: {e}"),
+                Ok(file) => {
+                    self.next_id = file.next_id;
+                    self.nodes = file
+                        .nodes
+                        .into_iter()
+                        .map(|n| LogicNode {
+                            id: n.id,
+                            label: n.label,
+                            pos: egui::pos2(n.pos[0], n.pos[1]),
+                            colour: Color32::from_rgb(n.colour.r, n.colour.g, n.colour.b),
+                        })
+                        .collect();
+                    self.edges = file.edges.into_iter().map(|e| (e[0], e[1])).collect();
+                    self.selected_node = None;
+                    self.save_status =
+                        format!("Loaded {} nodes ← {}", self.nodes.len(), path.display());
+                }
+            },
+        }
     }
 }
