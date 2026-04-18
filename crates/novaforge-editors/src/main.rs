@@ -254,7 +254,7 @@ impl EditorApp {
             panel_ctx: PanelContext::default(),
             status: "No project loaded.".to_string(),
             theme: Theme::Dark,
-            recent_projects: Vec::new(),
+            recent_projects: Self::load_recent(),
         }
     }
 
@@ -272,6 +272,58 @@ impl EditorApp {
             Tab::AiTool,
             Tab::GameFile,
         ]
+    }
+
+    // -----------------------------------------------------------------------
+    // Persistent recent projects
+    // -----------------------------------------------------------------------
+
+    /// Platform-specific path to the recent-projects config file:
+    /// - Linux/macOS: `$HOME/.config/novaforge-workspace/recent.toml`
+    /// - Windows:     `%APPDATA%\novaforge-workspace\recent.toml`
+    fn config_path() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        let base = std::env::var("APPDATA").ok().map(PathBuf::from);
+        #[cfg(not(target_os = "windows"))]
+        let base = std::env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join(".config"));
+        base.map(|b| b.join("novaforge-workspace").join("recent.toml"))
+    }
+
+    /// Load the recent-projects list from disk.  Returns an empty list on any
+    /// error (missing file, parse failure, …) so startup is never blocked.
+    fn load_recent() -> Vec<String> {
+        let Some(path) = Self::config_path() else {
+            return Vec::new();
+        };
+        let Ok(content) = std::fs::read_to_string(&path) else {
+            return Vec::new();
+        };
+        #[derive(serde::Deserialize)]
+        struct RecentFile {
+            recent: Vec<String>,
+        }
+        toml::from_str::<RecentFile>(&content)
+            .map(|f| f.recent)
+            .unwrap_or_default()
+    }
+
+    /// Persist the current recent-projects list to disk.  Silently ignores errors.
+    fn save_recent(&self) {
+        let Some(path) = Self::config_path() else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        #[derive(serde::Serialize)]
+        struct RecentFile<'a> {
+            recent: &'a [String],
+        }
+        if let Ok(content) = toml::to_string_pretty(&RecentFile { recent: &self.recent_projects }) {
+            let _ = std::fs::write(&path, content);
+        }
     }
 
     fn toggle_tab(&mut self, tab: Tab) {
@@ -312,6 +364,8 @@ impl EditorApp {
                 self.recent_projects.retain(|p| p != &path_str);
                 self.recent_projects.insert(0, path_str);
                 self.recent_projects.truncate(5);
+                // Persist to disk so the list survives restarts.
+                self.save_recent();
             }
             Err(e) => {
                 self.status = format!("Error: {e}");
@@ -393,9 +447,11 @@ impl EditorApp {
                             let recents = self.recent_projects.clone();
                             let mut open_path: Option<String> = None;
                             for path in &recents {
-                                // Shorten long paths for display.
-                                let display = if path.len() > 60 {
-                                    format!("…{}", &path[path.len() - 57..])
+                                // Shorten long paths for display using char-aware iteration.
+                                let chars: Vec<char> = path.chars().collect();
+                                let display = if chars.len() > 60 {
+                                    let tail: String = chars[chars.len() - 57..].iter().collect();
+                                    format!("…{tail}")
                                 } else {
                                     path.clone()
                                 };
@@ -544,6 +600,12 @@ impl eframe::App for EditorApp {
         self.panel_ctx.selected_file =
             self.panels.workspace_browser.selected_absolute_path();
 
+        // If the browser context menu requested "Open in File Editor", ensure
+        // that tab is visible so the user sees the file immediately.
+        if self.panels.workspace_browser.open_file_request.take().is_some() {
+            self.ensure_tab_open(Tab::GameFile);
+        }
+
         // ── Keyboard shortcuts ────────────────────────────────────────────────
         // Ctrl+S — save the currently open file in the Game File Editor.
         // Ctrl+B — trigger a debug build.
@@ -600,6 +662,9 @@ struct WorkspaceBrowser {
     selected: Option<usize>,
     /// Relative paths of directories that are currently collapsed.
     collapsed: std::collections::HashSet<String>,
+    /// Set by the context menu when the user chooses "Open in File Editor".
+    /// The main app reads and clears this every frame.
+    open_file_request: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -760,13 +825,44 @@ impl EditorPanel for WorkspaceBrowser {
                         }
                     });
                 } else {
+                    let label = format!("{} {}", entry.icon, entry.display);
+                    let selected = self.selected == Some(i);
+
+                    // Build the absolute path once for the context menu.
+                    let abs_path = self.root.as_ref().map(|r| {
+                        r.join(entry.path.replace('/', std::path::MAIN_SEPARATOR_STR))
+                    });
+
                     ui.horizontal(|ui| {
                         ui.add_space(indent);
-                        let label = format!("{} {}", entry.icon, entry.display);
-                        let selected = self.selected == Some(i);
-                        if ui.selectable_label(selected, label).clicked() {
+                        let response = ui.selectable_label(selected, label);
+                        if response.clicked() {
                             new_selected = Some(i);
                         }
+                        // Right-click context menu for file entries.
+                        response.context_menu(|ui| {
+                            if ui
+                                .button("📝 Open in File Editor")
+                                .on_hover_text("Open this file in the Game File Editor panel")
+                                .clicked()
+                            {
+                                new_selected = Some(i);
+                                if let Some(ref p) = abs_path {
+                                    self.open_file_request = Some(p.clone());
+                                }
+                                ui.close_menu();
+                            }
+                            if ui
+                                .button("📋 Copy Path")
+                                .on_hover_text("Copy the absolute file path to the clipboard")
+                                .clicked()
+                            {
+                                if let Some(ref p) = abs_path {
+                                    ui.ctx().copy_text(p.display().to_string());
+                                }
+                                ui.close_menu();
+                            }
+                        });
                     });
                 }
             }

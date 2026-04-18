@@ -82,6 +82,8 @@ pub struct SceneEditor {
     pie_menu_pos: Option<egui::Pos2>,
     /// Index of the pie slice currently under the pointer, if any.
     pie_hovered: Option<usize>,
+    /// Text typed in the entity-list search box.
+    entity_filter: String,
 }
 
 impl Default for SceneEditor {
@@ -102,6 +104,7 @@ impl Default for SceneEditor {
             scene_status: String::new(),
             pie_menu_pos: None,
             pie_hovered: None,
+            entity_filter: String::new(),
         }
     }
 }
@@ -429,11 +432,29 @@ impl EditorPanel for SceneEditor {
                 ui.set_width(ENTITY_LIST_WIDTH);
                 ui.strong("Entities");
                 ui.separator();
+                // Search box
+                ui.horizontal(|ui| {
+                    ui.label("🔍");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.entity_filter)
+                            .hint_text("Filter…")
+                            .desired_width(f32::INFINITY),
+                    );
+                });
+                ui.separator();
+                let filter_lower = self.entity_filter.to_lowercase();
                 egui::ScrollArea::vertical()
                     .id_salt("entity_list")
                     .max_height(available.y - 32.0)                    .show(ui, |ui| {
                         let mut new_selected = self.selected;
+                        let mut visible_count = 0usize;
                         for (i, entity) in self.entities.iter().enumerate() {
+                            if !filter_lower.is_empty()
+                                && !entity.name.to_lowercase().contains(&filter_lower)
+                            {
+                                continue;
+                            }
+                            visible_count += 1;
                             let selected = self.selected == Some(i);
                             if ui
                                 .selectable_label(selected, format!("🔷 {}", entity.name))
@@ -445,6 +466,12 @@ impl EditorPanel for SceneEditor {
                         if self.entities.is_empty() {
                             ui.label(
                                 egui::RichText::new("No entities.\nPress ＋ to add one.")
+                                    .italics()
+                                    .color(Color32::from_rgb(120, 120, 140)),
+                            );
+                        } else if visible_count == 0 {
+                            ui.label(
+                                egui::RichText::new("No matches.")
                                     .italics()
                                     .color(Color32::from_rgb(120, 120, 140)),
                             );

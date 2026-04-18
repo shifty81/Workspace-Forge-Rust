@@ -2121,6 +2121,8 @@ dependencies = [
  "novaforge-project",
  "novaforge-ui",
  "rfd",
+ "serde",
+ "toml",
 ]
 
 [[package]]

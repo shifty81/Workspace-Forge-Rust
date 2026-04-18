@@ -46,8 +46,10 @@ populate automatically.
 
 ### Recent Projects
 
-After you successfully open a project its path is remembered for the current
-session.  Up to **5 recent paths** are stored.  To re-open one:
+After you successfully open a project its path is remembered **across sessions**
+(stored on disk in `~/.config/novaforge-workspace/recent.toml` on Linux/macOS
+and `%APPDATA%\novaforge-workspace\recent.toml` on Windows).
+Up to **5 recent paths** are stored.  To re-open one:
 
 1. Open the **File** menu.
 2. Hover over **Recent Projects** (appears once at least one project has been
@@ -89,6 +91,8 @@ Displays the file tree of the project's asset root directory.
 | Expand a directory | Click **▾ 📁 dirname** (expanded by default) |
 | Collapse a directory | Click **▾ 📁 dirname** to toggle to **▸ 📁 dirname** |
 | Select a file | Click its row |
+| Open file in File Editor | Right-click a file → **📝 Open in File Editor** (also opens the tab if it is closed) |
+| Copy file path | Right-click a file → **📋 Copy Path** (absolute path to clipboard) |
 
 The browser auto-populates when you open a project and reflects the asset root
 defined in `novaforge.workspace.toml`.  Directories start expanded; click the
@@ -110,6 +114,7 @@ A world/scene editor with an entity list and transform inspector.
 | **⧉ Duplicate** | Clone the selected entity (position offset by +1 on X; placed at end of list) |
 | **💾 Save** | Serialise all entities to `<asset_root>/scenes/scene.toml` |
 | **📂 Load** | Load entities from `<asset_root>/scenes/scene.toml` |
+| 🔍 search box in entity list | Filter entities by name; shows "No matches." when nothing passes |
 | Click an entity row | Select it; transform fields appear in the inspector below the viewport |
 | **Name** field | Rename the selected entity |
 | **Position / Rotation / Scale** drag-values | Edit the transform; drag left/right to change, or click to type |
