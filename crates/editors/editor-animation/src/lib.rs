@@ -43,6 +43,8 @@ pub struct AnimationEditor {
     new_track_name: String,
     /// Status message shown below the toolbar (save/load feedback).
     save_status: String,
+    /// The (track_idx, keyframe_idx) that is currently being dragged, if any.
+    dragging_kf: Option<(usize, usize)>,
 }
 
 impl Default for AnimationEditor {
@@ -78,6 +80,7 @@ impl Default for AnimationEditor {
             keyframe_counter: 6, // 3 tracks × ~2 keyframes already in the defaults
             new_track_name: String::new(),
             save_status: String::new(),
+            dragging_kf: None,
         }
     }
 }
@@ -369,6 +372,10 @@ impl EditorPanel for AnimationEditor {
             // Tracks
             let mut new_selected_track = self.selected_track;
             let mut new_selected_kf = self.selected_keyframe;
+            let mut new_dragging_kf = self.dragging_kf;
+            // Pending keyframe time update (track_idx, kf_idx, new_time).
+            let mut kf_time_update: Option<(usize, usize, f32)> = None;
+            let mut kf_drag_stopped = false;
 
             for (row, track) in self.tracks.iter().enumerate() {
                 let y_top = rect.top() + (row as f32 + 1.0) * row_h;
@@ -409,6 +416,7 @@ impl EditorPanel for AnimationEditor {
                 );
 
                 // Keyframes
+                let is_kf_dragging = self.dragging_kf.map(|(ti, _)| ti) == Some(row);
                 for (ki, kf) in track.keyframes.iter().enumerate() {
                     let kx = ruler_rect.left() + kf.time * px_per_sec;
                     if kx < ruler_rect.left() || kx > ruler_rect.right() {
@@ -417,7 +425,8 @@ impl EditorPanel for AnimationEditor {
                     let ky = y_top + row_h * 0.5;
                     let kf_rect = egui::Rect::from_center_size(egui::pos2(kx, ky), egui::vec2(10.0, 10.0));
                     let kf_selected = self.selected_track == Some(row) && self.selected_keyframe == Some(ki);
-                    let kf_color = if kf_selected {
+                    let kf_being_dragged = self.dragging_kf == Some((row, ki));
+                    let kf_color = if kf_selected || kf_being_dragged {
                         Color32::from_rgb(255, 220, 60)
                     } else {
                         Color32::from_rgb(200, 160, 40)
@@ -426,9 +435,17 @@ impl EditorPanel for AnimationEditor {
                     painter.rect_stroke(
                         kf_rect,
                         2.0,
-                        egui::Stroke::new(if kf_selected { 2.0 } else { 1.0 }, Color32::WHITE),
+                        egui::Stroke::new(if kf_selected || kf_being_dragged { 2.0 } else { 1.0 }, Color32::WHITE),
                         egui::StrokeKind::Middle,
                     );
+                    // Show a drag-cursor hint when hovering over a keyframe.
+                    if kf_being_dragged {
+                        painter.rect_filled(
+                            egui::Rect::from_center_size(egui::pos2(kx, ky), egui::vec2(2.0, row_h)),
+                            0.0,
+                            Color32::from_rgba_premultiplied(255, 220, 60, 80),
+                        );
+                    }
                     // Draw the keyframe label (first character) inside the diamond.
                     if let Some(ch) = kf.label.chars().next() {
                         painter.text(
@@ -439,17 +456,54 @@ impl EditorPanel for AnimationEditor {
                             Color32::from_rgb(30, 20, 0),
                         );
                     }
-                    // Click on keyframe to select it (and its track)
-                    let kf_response = ui.interact(kf_rect, ui.id().with(("kf", row, ki)), egui::Sense::click());
-                    if kf_response.clicked() {
+                    // Interact — click to select, drag to reposition.
+                    let kf_response = ui.interact(
+                        kf_rect,
+                        ui.id().with(("kf", row, ki)),
+                        egui::Sense::click_and_drag(),
+                    );
+                    if kf_response.clicked() && !is_kf_dragging {
                         new_selected_track = Some(row);
                         new_selected_kf = Some(ki);
+                    }
+                    if kf_response.drag_started() {
+                        new_dragging_kf = Some((row, ki));
+                        new_selected_track = Some(row);
+                        new_selected_kf = Some(ki);
+                    }
+                    if kf_response.dragged() {
+                        let dt = kf_response.drag_delta().x / px_per_sec;
+                        let new_time = (kf.time + dt).clamp(0.0, self.duration);
+                        kf_time_update = Some((row, ki, new_time));
+                    }
+                    if kf_response.drag_stopped() {
+                        kf_drag_stopped = true;
                     }
                 }
             }
 
+            // Apply collected state updates (after the immutable borrow of self.tracks ends).
             self.selected_track = new_selected_track;
             self.selected_keyframe = new_selected_kf;
+            self.dragging_kf = new_dragging_kf;
+
+            if let Some((ti, ki, new_time)) = kf_time_update {
+                if let Some(track) = self.tracks.get_mut(ti) {
+                    if let Some(kf) = track.keyframes.get_mut(ki) {
+                        kf.time = new_time;
+                    }
+                }
+            }
+            if kf_drag_stopped {
+                if let Some((ti, _)) = self.dragging_kf {
+                    if let Some(track) = self.tracks.get_mut(ti) {
+                        track.keyframes.sort_by(|a, b| a.time.total_cmp(&b.time));
+                    }
+                }
+                self.dragging_kf = None;
+                // Index is invalid after re-sorting; user can re-click.
+                self.selected_keyframe = None;
+            }
 
             // Playhead
             let phx = ruler_rect.left() + self.playhead * px_per_sec;

@@ -94,6 +94,7 @@ A world/scene editor with an entity list and transform inspector.
 | **⬆ Translate / ↻ Rotate / ⤢ Scale** | Select the active gizmo mode |
 | **＋ Entity** | Add a new entity to the scene |
 | **🗑 Delete** | Remove the selected entity (enabled only when something is selected) |
+| **⧉ Duplicate** | Clone the selected entity (position offset by +1 on X; placed at end of list) |
 | **💾 Save** | Serialise all entities to `<asset_root>/scenes/scene.toml` |
 | **📂 Load** | Load entities from `<asset_root>/scenes/scene.toml` |
 | Click an entity row | Select it; transform fields appear in the inspector below the viewport |
@@ -114,7 +115,7 @@ Browses and inspects asset files found under the project's asset root.
 | 🔍 search box | Filter by filename |
 | **All / 🖼 Texture / 📦 Model / 🔊 Sound / 🌐 Scene / 📄 Other** | Filter by asset type |
 | **⟳ Refresh** | Re-scan the asset root directory |
-| Click an entry | Select it; the **Asset Details** panel appears below |
+| Click an entry | Select it; the **Asset Details** panel appears below with path, type, file size, and last-modified date |
 
 Asset kinds are inferred from file extensions:
 
@@ -222,6 +223,7 @@ A timeline editor for skeletal animation clips.
 | **📂 Load** | Load tracks from `<asset_root>/animations/animation.toml` |
 | Click a track label | Select the track (required for keyframe operations) |
 | Click a keyframe diamond | Select the keyframe on its track |
+| **Drag a keyframe diamond** | Reposition it in time; keyframes re-sort automatically on release |
 | Click the ruler row | Scrub the playhead to that time |
 
 Time is displayed as `<current> / <total>` seconds in the transport bar.  The
@@ -241,6 +243,7 @@ A spreadsheet-style editor for game data tables (items, NPCs, zones, etc.).
 | **💾 Save** | Write all rows to `<asset_root>/data/data_table.toml` |
 | **📂 Load** | Load rows from `<asset_root>/data/data_table.toml` |
 | Click a row | Select it; the inline **Edit Row** form appears below |
+| **Click a column header (ID / Name / Type / Value / Tags)** | Sort rows ascending by that column; click again to reverse |
 | **Apply** | Write the edit buffer back to the selected row |
 | **Revert** | Discard edits and re-populate the buffer from the stored row |
 

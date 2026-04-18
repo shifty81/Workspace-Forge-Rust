@@ -28,6 +28,10 @@ pub struct DataEditor {
     save_status: String,
     /// Path from which data was last loaded / saved.
     last_path: Option<PathBuf>,
+    /// Column index currently used for sorting (0 = ID … 4 = Tags), or `None`.
+    sort_col: Option<usize>,
+    /// `true` = ascending, `false` = descending.
+    sort_asc: bool,
 }
 
 impl Default for DataEditor {
@@ -75,6 +79,8 @@ impl Default for DataEditor {
             edit_buf: placeholder,
             save_status: String::new(),
             last_path: None,
+            sort_col: None,
+            sort_asc: true,
         }
     }
 }
@@ -219,6 +225,34 @@ impl EditorPanel for DataEditor {
 
         let filter_lower = self.filter.to_lowercase();
 
+        // Build a display-order index respecting the active sort.
+        let mut display_indices: Vec<usize> = (0..self.rows.len()).collect();
+        if let Some(col) = self.sort_col {
+            let asc = self.sort_asc;
+            display_indices.sort_by(|&a, &b| {
+                let ra = &self.rows[a];
+                let rb = &self.rows[b];
+                let ord = match col {
+                    0 => ra.id.cmp(&rb.id),
+                    1 => ra.name.cmp(&rb.name),
+                    2 => ra.kind.cmp(&rb.kind),
+                    3 => ra.value.cmp(&rb.value),
+                    4 => ra.tags.cmp(&rb.tags),
+                    _ => std::cmp::Ordering::Equal,
+                };
+                if asc { ord } else { ord.reverse() }
+            });
+        }
+
+        // Helper: build the column header label with a sort indicator.
+        let col_header = |name: &str, idx: usize, sort_col: Option<usize>, sort_asc: bool| -> String {
+            if sort_col == Some(idx) {
+                format!("{name} {}", if sort_asc { "▲" } else { "▼" })
+            } else {
+                name.to_string()
+            }
+        };
+
         // Table
         egui::ScrollArea::vertical()
             .max_height(ui.available_height() - 140.0)
@@ -228,17 +262,29 @@ impl EditorPanel for DataEditor {
                     .striped(true)
                     .min_col_width(80.0)
                     .show(ui, |ui| {
-                        // Header
-                        ui.strong("ID");
-                        ui.strong("Name");
-                        ui.strong("Type");
-                        ui.strong("Value");
-                        ui.strong("Tags");
+                        // Clickable column headers
+                        for (ci, name) in ["ID", "Name", "Type", "Value", "Tags"].iter().enumerate() {
+                            let label = col_header(name, ci, self.sort_col, self.sort_asc);
+                            if ui
+                                .add(egui::Button::new(egui::RichText::new(label).strong()).frame(false))
+                                .on_hover_text("Click to sort")
+                                .clicked()
+                            {
+                                if self.sort_col == Some(ci) {
+                                    self.sort_asc = !self.sort_asc;
+                                } else {
+                                    self.sort_col = Some(ci);
+                                    self.sort_asc = true;
+                                }
+                                self.selected_row = None;
+                            }
+                        }
                         ui.end_row();
 
                         let mut new_selected = self.selected_row;
 
-                        for (i, row) in self.rows.iter().enumerate() {
+                        for &i in &display_indices {
+                            let row = &self.rows[i];
                             if !filter_lower.is_empty() {
                                 let haystack = format!(
                                     "{} {} {} {} {}",

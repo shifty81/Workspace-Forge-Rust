@@ -197,6 +197,22 @@ impl EditorPanel for SceneEditor {
                     };
                 }
             }
+            if ui
+                .add_enabled(delete_enabled, egui::Button::new("⧉ Duplicate"))
+                .on_hover_text("Clone the selected entity")
+                .clicked()
+            {
+                if let Some(idx) = self.selected {
+                    if let Some(original) = self.entities.get(idx) {
+                        let mut copy = original.clone();
+                        copy.name = format!("Copy of {}", original.name);
+                        // Offset slightly so the duplicate is visually distinct.
+                        copy.position[0] += 1.0;
+                        self.entities.push(copy);
+                        self.selected = Some(self.entities.len() - 1);
+                    }
+                }
+            }
             ui.separator();
             if ui.button("💾 Save").on_hover_text("Save scene to <asset_root>/scenes/scene.toml").clicked() {
                 self.save_scene(ctx);

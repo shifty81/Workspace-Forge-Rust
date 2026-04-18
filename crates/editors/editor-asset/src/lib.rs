@@ -179,15 +179,36 @@ impl EditorPanel for AssetEditor {
             if let Some(entry) = self.assets.get(idx) {
                 ui.separator();
                 ui.strong("Asset Details");
+
+                // Resolve the absolute path so we can read metadata.
+                let full_path = self
+                    .scanned_root
+                    .as_ref()
+                    .map(|r| r.join(&entry.relative_path));
+
                 egui::Grid::new("asset_detail")
                     .num_columns(2)
+                    .spacing([8.0, 2.0])
                     .show(ui, |ui| {
                         ui.label("Path");
                         ui.label(&entry.relative_path);
                         ui.end_row();
                         ui.label("Type");
-                        ui.label(entry.icon());
+                        ui.label(format!("{} {:?}", entry.icon(), entry.kind));
                         ui.end_row();
+
+                        if let Some(ref fp) = full_path {
+                            if let Ok(meta) = std::fs::metadata(fp) {
+                                ui.label("Size");
+                                ui.label(human_file_size(meta.len()));
+                                ui.end_row();
+                                if let Ok(modified) = meta.modified() {
+                                    ui.label("Modified");
+                                    ui.label(format_system_time(modified));
+                                    ui.end_row();
+                                }
+                            }
+                        }
                     });
                 ui.add_space(4.0);
                 // Thumbnail placeholder
@@ -197,14 +218,77 @@ impl EditorPanel for AssetEditor {
                 );
                 ui.painter()
                     .rect_filled(rect, 4.0, Color32::from_rgb(30, 30, 38));
+                let thumb_text = match entry.kind {
+                    novaforge_project::AssetKind::Texture => "🖼 Texture preview (pending)",
+                    novaforge_project::AssetKind::Model => "📦 3-D model preview (pending)",
+                    novaforge_project::AssetKind::Sound => "🔊 Audio waveform (pending)",
+                    _ => "Thumbnail preview (pending)",
+                };
                 ui.painter().text(
                     rect.center(),
                     egui::Align2::CENTER_CENTER,
-                    "Thumbnail preview (pending)",
+                    thumb_text,
                     egui::FontId::proportional(11.0),
                     Color32::from_rgb(90, 90, 110),
                 );
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Format a byte count as a human-readable string (e.g. "12.3 KB").
+fn human_file_size(bytes: u64) -> String {
+    const KB: u64 = 1_024;
+    const MB: u64 = 1_024 * KB;
+    const GB: u64 = 1_024 * MB;
+    if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+/// Format a [`std::time::SystemTime`] as a local-time string
+/// (UTC ISO-8601 without sub-seconds, e.g. "2025-11-03 14:22:07 UTC").
+fn format_system_time(t: std::time::SystemTime) -> String {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    let secs = match t.duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_secs(),
+        Err(_) => return "—".to_string(),
+    };
+
+    // Manual decomposition from Unix timestamp (Gregorian calendar, UTC).
+    let s = secs % 60;
+    let m = (secs / 60) % 60;
+    let h = (secs / 3600) % 24;
+
+    let days = secs / 86_400;
+    let (year, month, day) = days_to_ymd(days);
+    let _ = Duration::ZERO; // suppress unused import warning
+    format!("{year:04}-{month:02}-{day:02} {h:02}:{m:02}:{s:02} UTC")
+}
+
+/// Convert days since Unix epoch (1970-01-01) to (year, month, day).
+fn days_to_ymd(days: u64) -> (u32, u32, u32) {
+    // Algorithm from http://howardhinnant.github.io/date_algorithms.html
+    let z = days as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u32;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as u32, m, d)
 }
