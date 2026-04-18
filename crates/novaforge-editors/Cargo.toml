@@ -29,3 +29,4 @@ editor-animation  = { workspace = true }
 editor-data       = { workspace = true }
 editor-build      = { workspace = true }
 editor-gamefile  = { workspace = true }
+rfd              = { workspace = true }

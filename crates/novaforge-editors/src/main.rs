@@ -326,6 +326,41 @@ impl EditorApp {
                                 .hint_text(format!("Path to {MANIFEST_FILE}"))
                                 .desired_width(260.0),
                         );
+                        if ui
+                            .button("📂 Browse…")
+                            .on_hover_text("Open a file browser to locate the workspace manifest")
+                            .clicked()
+                        {
+                            // Build a suggested starting directory from whatever the
+                            // user has already typed so the dialog opens nearby.
+                            let start_dir = {
+                                let p = std::path::Path::new(self.project_path_input.trim());
+                                if p.is_dir() {
+                                    Some(p.to_path_buf())
+                                } else {
+                                    p.parent().map(|d| d.to_path_buf())
+                                }
+                            };
+
+                            let mut dialog = rfd::FileDialog::new()
+                                .add_filter(
+                                    "NovaForge workspace manifest",
+                                    &["toml"],
+                                )
+                                .add_filter("All files", &["*"])
+                                .set_title("Open NovaForge Workspace");
+
+                            if let Some(dir) = start_dir {
+                                dialog = dialog.set_directory(dir);
+                            }
+
+                            if let Some(path) = dialog.pick_file() {
+                                self.project_path_input =
+                                    path.to_string_lossy().to_string();
+                                self.load_project();
+                                ui.close_menu();
+                            }
+                        }
                         if ui.button("Open").clicked() {
                             self.load_project();
                             ui.close_menu();

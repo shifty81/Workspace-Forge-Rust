@@ -25,9 +25,11 @@ A project file (`novaforge.workspace.toml`) tells the editor where the
 Nova-Forge game code and assets live.
 
 1. Open the **File** menu in the menu bar.
-2. Type the path to your `novaforge.workspace.toml` (or the directory that
-   contains it) in the **Project** text field.
-3. Click **Open**.
+2. Click **📂 Browse…** to open a native file dialog — navigate to and select
+   your `novaforge.workspace.toml`.  The path is filled in automatically and
+   the project loads immediately after you confirm the dialog.
+3. Alternatively, type the path directly into the **Project** text field and
+   click **Open**.
 
 The ready-made manifest at the repository root works immediately after
 initialising the `nova-forge/` git submodule:

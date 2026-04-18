@@ -30,6 +30,7 @@ repository  = "https://github.com/shifty81/Workspace-Forge-Rust"
 egui      = "0.31"
 eframe    = "0.31"
 egui_dock = "0.16"
+rfd       = "0.15"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
