@@ -70,6 +70,9 @@ struct SceneFile {
 /// Displays a wgpu-rendered 3-D viewport (grid + axis lines, orbit camera)
 /// alongside a basic entity list and transform inspector.
 /// Entities can be saved to and loaded from `<asset_root>/scenes/scene.toml`.
+/// When a project is first opened the default scene file is loaded
+/// automatically if it exists.  An arbitrary scene file can also be opened
+/// by setting [`SceneEditor::open_file_request`] before the next frame.
 pub struct SceneEditor {
     gizmo_mode: GizmoMode,
     entities: Vec<SceneEntity>,
@@ -86,6 +89,14 @@ pub struct SceneEditor {
     entity_filter: String,
     /// Orbit camera state for the 3-D viewport.
     camera: CameraState,
+    /// The `asset_root` seen on the last frame — used to detect project changes
+    /// so we can auto-load the default scene.
+    last_asset_root: Option<PathBuf>,
+    /// Set by the main app (workspace browser, asset browser) to load a scene
+    /// from an arbitrary path.  Cleared at the start of the next `ui()` call.
+    pub open_file_request: Option<PathBuf>,
+    /// Path of the currently open scene file (used for Save without a dialog).
+    current_file: Option<PathBuf>,
 }
 
 impl Default for SceneEditor {
@@ -108,6 +119,9 @@ impl Default for SceneEditor {
             pie_hovered: None,
             entity_filter: String::new(),
             camera: CameraState::default(),
+            last_asset_root: None,
+            open_file_request: None,
+            current_file: None,
         }
     }
 }
@@ -122,6 +136,44 @@ impl SceneEditor {
         ctx.asset_root
             .as_ref()
             .map(|r| r.join("scenes").join("scene.toml"))
+    }
+
+    /// Load a scene from an arbitrary TOML file path.
+    ///
+    /// Updates [`scene_status`](Self::scene_status) and
+    /// [`current_file`](Self::current_file) so Save uses this path by default.
+    pub fn load_from_path(&mut self, path: PathBuf) {
+        match std::fs::read_to_string(&path) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.scene_status = format!("File not found: {}", path.display());
+            }
+            Err(e) => {
+                self.scene_status = format!("Read error: {e}");
+            }
+            Ok(content) => match toml::from_str::<SceneFile>(&content) {
+                Ok(file) => {
+                    let count = file.entities.len();
+                    self.entities = file.entities;
+                    self.selected = None;
+                    self.entity_counter = self
+                        .entities
+                        .iter()
+                        .filter_map(|e| {
+                            e.name
+                                .strip_prefix("Entity ")
+                                .and_then(|s| s.parse::<u32>().ok())
+                        })
+                        .max()
+                        .unwrap_or(0);
+                    self.current_file = Some(path.clone());
+                    self.scene_status =
+                        format!("Loaded {count} entities ← {}", path.display());
+                }
+                Err(e) => {
+                    self.scene_status = format!("Parse error: {e}");
+                }
+            },
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -286,7 +338,12 @@ impl SceneEditor {
     }
 
     fn save_scene(&mut self, ctx: &PanelContext) {
-        let Some(path) = Self::scene_path(ctx) else {
+        // Prefer the currently-open file, fall back to the canonical default.
+        let path = self
+            .current_file
+            .clone()
+            .or_else(|| Self::scene_path(ctx));
+        let Some(path) = path else {
             self.scene_status = "No project loaded — cannot save scene.".to_string();
             return;
         };
@@ -302,6 +359,7 @@ impl SceneEditor {
         match toml::to_string_pretty(&file) {
             Ok(content) => match std::fs::write(&path, content) {
                 Ok(()) => {
+                    self.current_file = Some(path.clone());
                     self.scene_status = format!("Saved → {}", path.display());
                 }
                 Err(e) => {
@@ -319,40 +377,7 @@ impl SceneEditor {
             self.scene_status = "No project loaded — cannot load scene.".to_string();
             return;
         };
-        match std::fs::read_to_string(&path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                self.scene_status = format!("File not found: {}", path.display());
-            }
-            Err(e) => {
-                self.scene_status = format!("Read error: {e}");
-            }
-            Ok(content) => match toml::from_str::<SceneFile>(&content) {
-                Ok(file) => {
-                    let count = file.entities.len();
-                    self.entities = file.entities;
-                    self.selected = None;
-                    // Set entity_counter to one above the highest numeric suffix
-                    // found in loaded entity names (e.g. "Entity 10" → 11), so
-                    // that new entities added after loading never duplicate an
-                    // existing name.
-                    let max_suffix = self
-                        .entities
-                        .iter()
-                        .filter_map(|e| {
-                            e.name
-                                .strip_prefix("Entity ")
-                                .and_then(|s| s.parse::<u32>().ok())
-                        })
-                        .max()
-                        .unwrap_or(0);
-                    self.entity_counter = self.entity_counter.max(max_suffix);
-                    self.scene_status = format!("Loaded {count} entities ← {}", path.display());
-                }
-                Err(e) => {
-                    self.scene_status = format!("Parse error: {e}");
-                }
-            },
-        }
+        self.load_from_path(path);
     }
 }
 
@@ -362,6 +387,24 @@ impl EditorPanel for SceneEditor {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, ctx: &PanelContext) {
+        // Auto-load the default scene when the project first opens or changes.
+        if ctx.asset_root != self.last_asset_root {
+            self.last_asset_root = ctx.asset_root.clone();
+            // Reset current_file so save falls back to the canonical default path.
+            self.current_file = None;
+            if let Some(path) = Self::scene_path(ctx) {
+                if path.exists() {
+                    self.load_from_path(path);
+                }
+            }
+        }
+
+        // Open an arbitrary scene file requested by the main app (workspace
+        // browser, asset browser).
+        if let Some(path) = self.open_file_request.take() {
+            self.load_from_path(path);
+        }
+
         // Toolbar
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.gizmo_mode, GizmoMode::Translate, "⬆ Translate");
@@ -409,7 +452,14 @@ impl EditorPanel for SceneEditor {
             ui.separator();
             if ui
                 .button("💾 Save")
-                .on_hover_text("Save scene to <asset_root>/scenes/scene.toml")
+                .on_hover_text(
+                    self.current_file
+                        .as_ref()
+                        .map(|p| format!("Save scene to {}", p.display()))
+                        .unwrap_or_else(|| {
+                            "Save scene to <asset_root>/scenes/scene.toml".to_string()
+                        }),
+                )
                 .clicked()
             {
                 self.save_scene(ctx);
@@ -422,6 +472,15 @@ impl EditorPanel for SceneEditor {
                 self.load_scene(ctx);
             }
         });
+
+        // Show current file name below the toolbar.
+        if let Some(ref path) = self.current_file {
+            ui.label(
+                egui::RichText::new(format!("📄 {}", path.display()))
+                    .size(10.0)
+                    .color(Color32::from_rgb(110, 130, 160)),
+            );
+        }
 
         if !self.scene_status.is_empty() {
             ui.label(
