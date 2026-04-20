@@ -615,6 +615,13 @@ impl eframe::App for EditorApp {
             self.ensure_tab_open(Tab::GameFile);
         }
 
+        // If the workspace browser requested "Open in Scene Editor", load the
+        // file into the Scene Editor and switch to that tab.
+        if let Some(path) = self.panels.workspace_browser.open_scene_request.take() {
+            self.panels.scene.load_from_path(path);
+            self.ensure_tab_open(Tab::Scene);
+        }
+
         // If the Asset Editor requested to open a file (double-click / context
         // menu / "Open in File Editor" button), route it to the Game File Editor.
         if let Some(path) = self.panels.asset.open_file_request.take() {
@@ -681,6 +688,9 @@ struct WorkspaceBrowser {
     /// Set by the context menu when the user chooses "Open in File Editor".
     /// The main app reads and clears this every frame.
     open_file_request: Option<PathBuf>,
+    /// Set by the context menu when the user chooses "Open in Scene Editor".
+    /// The main app reads and clears this every frame.
+    open_scene_request: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -854,6 +864,41 @@ impl EditorPanel for WorkspaceBrowser {
                         .as_ref()
                         .map(|r| r.join(entry.path.replace('/', std::path::MAIN_SEPARATOR_STR)));
 
+                    // Classify this file so we can offer the right editor.
+                    let rel_path = &entry.path;
+                    let ext = std::path::Path::new(rel_path)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let is_scene = ext == "scene"
+                        || ext == "ron"
+                        || rel_path.starts_with("scenes/");
+                    let is_text = matches!(
+                        ext.as_str(),
+                        "toml"
+                            | "ron"
+                            | "json"
+                            | "yaml"
+                            | "yml"
+                            | "lua"
+                            | "txt"
+                            | "md"
+                            | "conf"
+                            | "cfg"
+                            | "ini"
+                            | "glsl"
+                            | "wgsl"
+                            | "vert"
+                            | "frag"
+                            | "comp"
+                            | "hlsl"
+                            | "py"
+                            | "sh"
+                            | "bat"
+                            | "rs"
+                    );
+
                     ui.horizontal(|ui| {
                         ui.add_space(indent);
                         let response = ui.selectable_label(selected, label);
@@ -862,10 +907,25 @@ impl EditorPanel for WorkspaceBrowser {
                         }
                         // Right-click context menu for file entries.
                         response.context_menu(|ui| {
-                            if ui
-                                .button("📝 Open in File Editor")
-                                .on_hover_text("Open this file in the Game File Editor panel")
-                                .clicked()
+                            if is_scene
+                                && ui
+                                    .button("🌐 Open in Scene Editor")
+                                    .on_hover_text("Load this file into the Scene Editor")
+                                    .clicked()
+                            {
+                                new_selected = Some(i);
+                                if let Some(ref p) = abs_path {
+                                    self.open_scene_request = Some(p.clone());
+                                }
+                                ui.close_menu();
+                            }
+                            if is_text
+                                && ui
+                                    .button("📝 Open in File Editor")
+                                    .on_hover_text(
+                                        "Open this file in the Game File Editor panel",
+                                    )
+                                    .clicked()
                             {
                                 new_selected = Some(i);
                                 if let Some(ref p) = abs_path {
