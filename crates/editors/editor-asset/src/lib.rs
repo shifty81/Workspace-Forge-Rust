@@ -303,7 +303,14 @@ impl EditorPanel for AssetEditor {
                     if self.preview_path.as_ref() != full_path.as_ref() {
                         self.preview = full_path.as_ref().and_then(|p| {
                             std::fs::read_to_string(p).ok().map(|s| {
-                                s.lines().take(20).collect::<Vec<_>>().join("\n")
+                                let mut lines = s.lines();
+                                let taken: Vec<&str> = lines.by_ref().take(20).collect();
+                                let truncated = lines.next().is_some();
+                                let mut preview = taken.join("\n");
+                                if truncated {
+                                    preview.push_str("\n…");
+                                }
+                                preview
                             })
                         });
                         self.preview_path = full_path.clone();

@@ -164,7 +164,7 @@ impl SceneEditor {
                                 .and_then(|s| s.parse::<u32>().ok())
                         })
                         .max()
-                        .unwrap_or(self.entity_counter);
+                        .unwrap_or(0);
                     self.current_file = Some(path.clone());
                     self.scene_status =
                         format!("Loaded {count} entities ← {}", path.display());
