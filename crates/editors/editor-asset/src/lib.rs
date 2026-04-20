@@ -108,7 +108,7 @@ impl AssetEditor {
     fn full_path(&self, relative_path: &str) -> Option<PathBuf> {
         self.scanned_root
             .as_ref()
-            .map(|r| r.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR)))
+            .map(|r| r.join(relative_path))
     }
 }
 
@@ -248,8 +248,8 @@ impl EditorPanel for AssetEditor {
                         }
                     }
 
-                    // Right-click context menu.
-                    let menu_fp = fp.clone();
+                    // Right-click context menu — move fp rather than clone again.
+                    let menu_fp = fp;
                     response.context_menu(|ui| {
                         if is_text
                             && ui
@@ -353,7 +353,7 @@ impl EditorPanel for AssetEditor {
                         }
                     }
 
-                    // Read-only text preview.
+                    // Read-only text preview — borrow rather than clone.
                     if let Some(ref preview) = self.preview {
                         ui.separator();
                         ui.label(
@@ -362,16 +362,15 @@ impl EditorPanel for AssetEditor {
                                 .italics()
                                 .color(Color32::from_rgb(140, 140, 165)),
                         );
-                        let mut buf = preview.clone();
                         egui::ScrollArea::vertical()
                             .max_height(120.0)
                             .id_salt("asset_preview")
                             .show(ui, |ui| {
                                 ui.add(
-                                    egui::TextEdit::multiline(&mut buf)
-                                        .font(egui::TextStyle::Monospace)
-                                        .desired_width(f32::INFINITY)
-                                        .interactive(false),
+                                    egui::Label::new(
+                                        egui::RichText::new(preview.as_str()).monospace(),
+                                    )
+                                    .wrap(),
                                 );
                             });
                     }
