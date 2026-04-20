@@ -2,6 +2,12 @@
 //!
 //! Reads the asset root from the loaded project context and lets the user
 //! browse, filter, and inspect Nova-Forge asset files.
+//!
+//! Text-based assets (RON, TOML, Lua, GLSL, …) can be opened directly in the
+//! Game File Editor via double-click, right-click context menu, or the
+//! **"Open in File Editor"** button in the details pane.  The main app reads
+//! [`AssetEditor::open_file_request`] each frame and routes it to the
+//! appropriate tab.
 
 use egui::Color32;
 use novaforge_project::{scan_assets, AssetKind};
@@ -30,6 +36,34 @@ enum KindFilter {
     Only(AssetKind),
 }
 
+/// Returns `true` for file extensions we can open in the Game File Editor.
+fn is_text_ext(ext: &str) -> bool {
+    matches!(
+        ext.to_lowercase().as_str(),
+        "toml"
+            | "ron"
+            | "json"
+            | "yaml"
+            | "yml"
+            | "lua"
+            | "txt"
+            | "md"
+            | "conf"
+            | "cfg"
+            | "ini"
+            | "glsl"
+            | "wgsl"
+            | "vert"
+            | "frag"
+            | "comp"
+            | "hlsl"
+            | "py"
+            | "sh"
+            | "bat"
+            | "rs"
+    )
+}
+
 /// Asset Browser & Editor panel.
 #[derive(Default)]
 pub struct AssetEditor {
@@ -39,6 +73,14 @@ pub struct AssetEditor {
     assets: Vec<AssetEntry>,
     /// The root we last scanned so we can detect when it changes.
     scanned_root: Option<PathBuf>,
+    /// Set by double-click or context menu; read and cleared by the main app
+    /// each frame so it can open the file in the Game File Editor.
+    pub open_file_request: Option<PathBuf>,
+    /// Cached read-only text preview of the currently selected text asset.
+    preview: Option<String>,
+    /// The file path for which `preview` was last loaded — used to avoid
+    /// re-reading on every frame.
+    preview_path: Option<PathBuf>,
 }
 
 impl AssetEditor {
@@ -58,6 +100,15 @@ impl AssetEditor {
             .collect();
         self.selected = None;
         self.scanned_root = Some(root);
+        self.preview = None;
+        self.preview_path = None;
+    }
+
+    /// Build the platform-native absolute path for `relative_path`.
+    fn full_path(&self, relative_path: &str) -> Option<PathBuf> {
+        self.scanned_root
+            .as_ref()
+            .map(|r| r.join(relative_path.replace('/', std::path::MAIN_SEPARATOR_STR)))
     }
 }
 
@@ -134,12 +185,16 @@ impl EditorPanel for AssetEditor {
 
         ui.separator();
 
-        // Asset list
+        // Asset list  ──────────────────────────────────────────────────────────
+        // Collect selection and open-request changes outside the borrow on
+        // `self.assets` to avoid simultaneous mutable+immutable borrow errors.
+        let mut new_selected = self.selected;
+        let mut pending_open: Option<PathBuf> = None;
+
         egui::ScrollArea::vertical()
-            .max_height(ui.available_height() - 120.0)
+            .max_height(ui.available_height() - 150.0)
             .show(ui, |ui| {
                 let filter_lower = self.filter.to_lowercase();
-                let mut new_selected = self.selected;
 
                 if self.assets.is_empty() && self.scanned_root.is_some() {
                     ui.label(
@@ -164,28 +219,101 @@ impl EditorPanel for AssetEditor {
                     }
 
                     let selected = self.selected == Some(i);
-                    let label =
-                        egui::RichText::new(format!("{} {}", entry.icon(), entry.relative_path));
-                    if ui.selectable_label(selected, label).clicked() {
+                    let row_label = egui::RichText::new(format!(
+                        "{} {}",
+                        entry.icon(),
+                        entry.relative_path
+                    ));
+
+                    // Build context-menu data before the response (avoids
+                    // holding an immutable borrow on entry across closures).
+                    let fp = self.full_path(&entry.relative_path);
+                    let ext = std::path::Path::new(&entry.relative_path)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let is_text = is_text_ext(&ext);
+
+                    let response = ui.selectable_label(selected, row_label);
+
+                    if response.clicked() {
                         new_selected = Some(i);
                     }
+                    // Double-click opens text assets immediately in the File Editor.
+                    if response.double_clicked() {
+                        new_selected = Some(i);
+                        if is_text {
+                            pending_open = fp.clone();
+                        }
+                    }
+
+                    // Right-click context menu.
+                    let menu_fp = fp.clone();
+                    response.context_menu(|ui| {
+                        if is_text
+                            && ui
+                                .button("📝 Open in File Editor")
+                                .on_hover_text(
+                                    "Open this file in the Game File Editor tab (or double-click)",
+                                )
+                                .clicked()
+                        {
+                            pending_open = menu_fp.clone();
+                            ui.close_menu();
+                        }
+                        if ui
+                            .button("📋 Copy Path")
+                            .on_hover_text("Copy the absolute path to the clipboard")
+                            .clicked()
+                        {
+                            if let Some(ref p) = menu_fp {
+                                ui.ctx().copy_text(p.display().to_string());
+                            }
+                            ui.close_menu();
+                        }
+                    });
                 }
 
                 self.selected = new_selected;
             });
 
-        // Preview / inspector for selected asset
+        // Commit any open-file request collected during the list loop.
+        if pending_open.is_some() {
+            self.open_file_request = pending_open;
+        }
+
+        // Details / inspector for selected asset  ─────────────────────────────
         if let Some(idx) = self.selected {
-            if let Some(entry) = self.assets.get(idx) {
+            // Clone entry so we don't hold a borrow on self.assets while we
+            // mutate other fields (preview cache, open_file_request).
+            if let Some(entry) = self.assets.get(idx).cloned() {
                 ui.separator();
                 ui.strong("Asset Details");
 
-                // Resolve the absolute path so we can read metadata.
-                let full_path = self
-                    .scanned_root
-                    .as_ref()
-                    .map(|r| r.join(&entry.relative_path));
+                let full_path = self.full_path(&entry.relative_path);
+                let ext = std::path::Path::new(&entry.relative_path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("");
+                let is_text = is_text_ext(ext);
 
+                // Refresh text preview when the selected file changes.
+                if is_text {
+                    if self.preview_path.as_ref() != full_path.as_ref() {
+                        self.preview = full_path.as_ref().and_then(|p| {
+                            std::fs::read_to_string(p).ok().map(|s| {
+                                s.lines().take(20).collect::<Vec<_>>().join("\n")
+                            })
+                        });
+                        self.preview_path = full_path.clone();
+                    }
+                } else if self.preview_path.as_ref() != full_path.as_ref() {
+                    self.preview = None;
+                    self.preview_path = full_path.clone();
+                }
+
+                // Metadata grid.
                 egui::Grid::new("asset_detail")
                     .num_columns(2)
                     .spacing([8.0, 2.0])
@@ -210,27 +338,65 @@ impl EditorPanel for AssetEditor {
                             }
                         }
                     });
+
                 ui.add_space(4.0);
-                // Thumbnail placeholder
-                let (rect, _) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), 80.0),
-                    egui::Sense::hover(),
-                );
-                ui.painter()
-                    .rect_filled(rect, 4.0, Color32::from_rgb(30, 30, 38));
-                let thumb_text = match entry.kind {
-                    novaforge_project::AssetKind::Texture => "🖼 Texture preview (pending)",
-                    novaforge_project::AssetKind::Model => "📦 3-D model preview (pending)",
-                    novaforge_project::AssetKind::Sound => "🔊 Audio waveform (pending)",
-                    _ => "Thumbnail preview (pending)",
-                };
-                ui.painter().text(
-                    rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    thumb_text,
-                    egui::FontId::proportional(11.0),
-                    Color32::from_rgb(90, 90, 110),
-                );
+
+                if is_text {
+                    // "Open in File Editor" action button.
+                    if ui
+                        .button("📝 Open in File Editor")
+                        .on_hover_text("Open in the Game File Editor tab  (or double-click the asset)")
+                        .clicked()
+                    {
+                        if let Some(ref p) = full_path {
+                            self.open_file_request = Some(p.clone());
+                        }
+                    }
+
+                    // Read-only text preview.
+                    if let Some(ref preview) = self.preview {
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new("Preview (first 20 lines):")
+                                .size(11.0)
+                                .italics()
+                                .color(Color32::from_rgb(140, 140, 165)),
+                        );
+                        let mut buf = preview.clone();
+                        egui::ScrollArea::vertical()
+                            .max_height(120.0)
+                            .id_salt("asset_preview")
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut buf)
+                                        .font(egui::TextStyle::Monospace)
+                                        .desired_width(f32::INFINITY)
+                                        .interactive(false),
+                                );
+                            });
+                    }
+                } else {
+                    // Thumbnail placeholder for images, models, sounds, etc.
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), 80.0),
+                        egui::Sense::hover(),
+                    );
+                    ui.painter()
+                        .rect_filled(rect, 4.0, Color32::from_rgb(30, 30, 38));
+                    let thumb_text = match entry.kind {
+                        AssetKind::Texture => "🖼 Texture preview (pending)",
+                        AssetKind::Model => "📦 3-D model preview (pending)",
+                        AssetKind::Sound => "🔊 Audio waveform (pending)",
+                        _ => "Thumbnail preview (pending)",
+                    };
+                    ui.painter().text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        thumb_text,
+                        egui::FontId::proportional(11.0),
+                        Color32::from_rgb(90, 90, 110),
+                    );
+                }
             }
         }
     }

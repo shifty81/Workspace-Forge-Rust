@@ -615,6 +615,13 @@ impl eframe::App for EditorApp {
             self.ensure_tab_open(Tab::GameFile);
         }
 
+        // If the Asset Editor requested to open a file (double-click / context
+        // menu / "Open in File Editor" button), route it to the Game File Editor.
+        if let Some(path) = self.panels.asset.open_file_request.take() {
+            self.panel_ctx.selected_file = Some(path);
+            self.ensure_tab_open(Tab::GameFile);
+        }
+
         // ── Keyboard shortcuts ────────────────────────────────────────────────
         // Ctrl+S — save the currently open file in the Game File Editor.
         // Ctrl+B — trigger a debug build.
